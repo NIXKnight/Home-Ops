@@ -1,0 +1,16 @@
+# Basic settings
+daemon=no
+quiet=no
+disable-syslog=yes
+local-address=0.0.0.0
+
+
+# Forward zones
+forward-zones=${PDNS_RECURSOR_LOCAL_ZONE}=${PDNS_RECURSOR_LOCAL_DNS_ADDRESS}:${PDNS_RECURSOR_LOCAL_DNS_PORT}
+
+# Upstream resolvers
+forward-zones-recurse=.=${PDNS_RECURSOR_UPSTREAM_RESOLVERS}
+
+# API settings
+webserver=yes
+api-key=${PDNS_RECURSOR_API_KEY}

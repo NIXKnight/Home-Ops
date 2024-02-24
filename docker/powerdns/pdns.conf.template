@@ -1,0 +1,23 @@
+# Basic settings
+daemon=no
+guardian=no
+write-pid=no
+log-timestamp=yes
+disable-syslog=yes
+local-address=${PDNS_API_ADDRESS}
+local-port=${PDNS_LOCAL_PORT}
+
+# MySQL Backend settings
+launch=gmysql
+gmysql-host=${PDNS_MYSQL_HOST}
+gmysql-user=${PDNS_MYSQL_USERNAME}
+gmysql-password=${PDNS_MYSQL_PASSWORD}
+gmysql-dbname=${PDNS_MYSQL_DATABASE}
+
+# API settings
+api=yes
+api-key=${PDNS_API_KEY}
+webserver=yes
+webserver-address=${PDNS_API_ADDRESS}
+webserver-port=${PDNS_API_PORT}
+webserver-allow-from=${PDNS_API_ALLOW_FROM}
