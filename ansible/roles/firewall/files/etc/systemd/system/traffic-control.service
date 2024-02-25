@@ -1,0 +1,13 @@
+[Unit]
+Description=Setup Traffic Control with Cake
+After=netfilter-persistent.service
+
+[Service]
+ExecStart=/usr/local/bin/tc-wrapper.sh --start
+ExecStop=/usr/local/bin/tc-wrapper.sh --stop
+ExecReload=/usr/local/bin/tc-wrapper.sh --reload
+Type=oneshot
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,71 @@
+---
+# tasks file for firewall
+- name: Set DebConf for iptables-persistent
+  ansible.builtin.debconf:
+    name: iptables-persistent
+    question: "{{ item.question }}"
+    value: "{{ item.value }}"
+    vtype: "{{ item.vtype }}"
+  with_items: "{{ FIREWALL_DEBCONF_PACKAGE_QUESTIONS }}"
+
+- name: Install iptables-persistent
+  ansible.builtin.apt:
+    name: "iptables-persistent"
+    state: present
+    update_cache: yes
+
+- name: Generate IPTables Rules Shell Script
+  template:
+    src: "templates/iptables-rules.sh.j2"
+    dest: "/usr/local/bin/generate-iptables-rules.sh"
+    mode: 0755
+  register: generate_iptables_shell_script
+
+- name: Run IPTables Rules Shell Script
+  ansible.builtin.shell: "/usr/local/bin/generate-iptables-rules.sh"
+  args:
+    executable: "/bin/bash"
+  when: generate_iptables_shell_script.changed
+
+- name: Restart netfilter-persistent
+  systemd:
+    name: "netfilter-persistent"
+    state: restarted
+  when: generate_iptables_shell_script.changed
+
+- name: Generate Traffic Control Shell Script
+  template:
+    src: "templates/usr/local/bin/tc-wrapper.sh.j2"
+    dest: "/usr/local/bin/tc-wrapper.sh"
+    mode: 0755
+  register: generate_traffic_control_shell_script
+
+- name: Check if Traffic Control Service Exists
+  stat:
+    path: "/etc/systemd/system/traffic-control.service"
+  register: service_file_stat
+
+- name: Setup Systemd Service for Traffic Control
+  copy:
+    src: "files/etc/systemd/system/traffic-control.service"
+    dest: "/etc/systemd/system/cake-traffic-control.service"
+    owner: root
+    group: root
+    mode: 0644
+
+- name: Reload Systemd
+  systemd:
+    daemon_reload: yes
+
+- name: Enable and Start Traffic Control
+  systemd:
+    name: "cake-traffic-control"
+    enabled: yes
+    state: started
+  when: not service_file_stat.stat.exists
+
+- name: Restart Traffic Control
+  systemd:
+    name: "cake-traffic-control"
+    state: restarted
+  when: generate_traffic_control_shell_script.changed

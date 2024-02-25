@@ -1,0 +1,39 @@
+---
+# defaults file for firewall
+FIREWALL_DEBCONF_PACKAGE_QUESTIONS:
+  - question: "iptables-persistent/autosave_v6"
+    value: "true"
+    vtype: "select"
+  - question: "iptables-persistent/autosave_v4"
+    value: "true"
+    vtype: "select"
+FIREWALL_WAN_INTERFACE: ""
+FIREWALL_WAN_BANDWIDTH: ""
+FIREWALL_LAN_INTERFACE: ""
+FIREWALL_LAN_BANDWIDTH: ""
+FIREWALL_SSH_ENABLED: true
+FIREWALL_SSH_PORT: ""
+FIREWALL_OPEN_PORTS_ENABLED: false
+FIREWALL_OPEN_PORTS:
+  - INTERFACE: ""
+    PROTOCOL: ""
+    PORT: ""
+    LOG_PREFIX: ""
+FIREWALL_OPEN_PORTS:
+  - INTERFACE: ""
+    PROTOCOL: ""
+    PORT: ""
+    LOG_PREFIX: ""
+FIREWALL_PORT_FORWARDING_ENABLED: false
+FIREWALL_FORWARDED_PORTS:
+  - PROTOCOL: ""
+    PORT: ""
+    DEST_HOST: ""
+    DEST_PORT: ""
+    LOG_PREFIX: ""
+FIREWALL_MAC_RESTRICTION_ENABLED: false
+FIREWALL_MAC_WHITELIST:
+  - INTERFACE: ""
+    MAC_ADDRESS: ""
+    IP_ADDRESS: ""
+FIREWALL_ADDITIONAL_RULES: []
