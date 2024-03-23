@@ -1,3 +1,5 @@
 ansible/collections/*
 !ansible/collections/.gitkeep
+ansible/external-roles/*
+!ansible/external-roles/.gitkeep
 *.retry
