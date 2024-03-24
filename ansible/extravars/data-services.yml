@@ -1,0 +1,51 @@
+---
+DATA_SERVICE_NAME: "fw-data"
+DATA_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Data Services - PostgreSQL and Redis"
+DATA_SERVICE_SYSTEMD_REQUIRES: "docker.service"
+DATA_SERVICE_SYSTEMD_AFTER: "docker.service"
+DATA_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service"
+DATA_SERVICE_IMAGES:
+  postgresql:
+    name: "postgres"
+    tag: "16.2-bookworm"
+  redis:
+    name: "redis"
+    tag: "7.2.4-bookworm"
+DATA_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/postgresql"
+DATA_PGSQL_IMAGE: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.tag }}"
+DATA_REDIS_IMAGE: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.redis.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.redis.tag }}"
+DATA_SERVICE_MANIFEST:
+  dest: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    version: '3.9'
+    services:
+      postgres:
+        image: "{{ DATA_PGSQL_IMAGE }}"
+        environment:
+          POSTGRES_USER: "{{ DATA_POSTGRES_USERNAME }}"
+          POSTGRES_PASSWORD: "{{ DATA_POSTGRES_PASSWORD }}"
+        volumes:
+          - "postgres_data:/var/lib/postgresql/data"
+        network_mode: host
+        healthcheck:
+          test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_PASSWORD}"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 30s
+      redis:
+        image: "{{ DATA_REDIS_IMAGE }}"
+        volumes:
+          - "redis_data:/data"
+        network_mode: host
+        healthcheck:
+          test: ["CMD-SHELL", "test $(redis-cli -h localhost PING) = PONG"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 5s
+    volumes:
+      postgres_data:
+        driver: local
+      redis_data:
+        driver: local

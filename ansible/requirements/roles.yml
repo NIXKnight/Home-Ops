@@ -8,3 +8,7 @@
 - name: motd
   src: https://github.com/NIXKnight/Ansible-MessageOfTheDay.git
   version: master
+
+- name: docker_compose_service
+  src: https://github.com/NIXKnight/Ansible-Docker-Compose-Service.git
+  version: main
