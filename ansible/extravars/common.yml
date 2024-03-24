@@ -1,0 +1,38 @@
+---
+# linux_common variables
+LC_CHANGE_HOSTNAME: False
+ansible_user_id: "saadali" # set to the ssh user
+#inventory_hostname_short: ""
+LC_SET_LOCALES: False
+LC_SETUP_SUDO: False
+LC_LOCALES:
+  - "en_US.UTF-8 UTF-8"
+LC_DEFAULT_LOCALE: "en_US.UTF-8 UTF-8"
+LC_MODIFY_SYSTEM_SHELL_ENV: True
+LC_MODIFY_SKEL: True
+LC_MODIFY_ROOT_SHELL_ENV: True
+LC_MODIFY_USER_SHELL_ENV: True
+LC_DEBIAN_MIRROR: "deb.debian.org"
+LC_DEBIAN_REPOS: "main contrib non-free non-free-firmware"
+LC_INSTALL_PACKAGES: True
+LC_REBOOT: False
+LC_CHANGE_TIMEZONE: False
+LC_ENABLE_SRC_REPOS: False
+LC_ENABLE_APT_BACKPORTS: False
+LC_CHANGES_APT_DEFAULT_SOURCES_LIST: False
+LC_TIMEZONE: "Asia/Karachi"
+LC_SET_KERNEL_PARAMETERS: True
+LC_KERNEL_PARAMETERS:
+  - { name: "vm.swappiness", value: 1, state: present }
+  - { name: "vm.vfs_cache_pressure", value: 50, state: present }
+  - { name: "net.ipv4.tcp_timestamps", value: 0, state: present }
+  - { name: "fs.inotify.max_user_watches", value: 524288, state: present }
+  - { name: "fs.inotify.max_user_instances", value: 524288, state: present }
+  - { name: "net.ipv4.ip_forward", value: 1, state: present }
+LC_EXTRA_PACKAGES:
+  - "gpg"
+  - "apt-transport-https"
+
+# motd variables
+memory_info: False
+network_info: True
