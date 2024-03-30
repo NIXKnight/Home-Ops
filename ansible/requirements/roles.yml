@@ -12,3 +12,7 @@
 - name: docker_compose_service
   src: https://github.com/NIXKnight/Ansible-Docker-Compose-Service.git
   version: main
+
+- name: pgsql_dbs_users
+  src: https://github.com/NIXKnight/Ansible-PgSQL-DB-User.git
+  version: master

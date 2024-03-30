@@ -1,0 +1,9 @@
+---
+- name: Create/Update PostgreSQL Databases and Users Privileges
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+    - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  roles:
+    - pgsql_dbs_users
