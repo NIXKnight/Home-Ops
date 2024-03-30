@@ -8,16 +8,19 @@ DATA_SERVICE_IMAGES:
   postgresql:
     name: "postgres"
     tag: "16.2-bookworm"
+  pgadmin:
+    name: "dpage/pgadmin4"
+    tag: "8.4"
   redis:
     name: "redis"
     tag: "7.2.4-bookworm"
 DATA_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/postgresql"
 DATA_PGSQL_IMAGE: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.postgresql.tag }}"
+DATA_PGADMIN_IMAGE: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.pgadmin.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.pgadmin.tag }}"
 DATA_REDIS_IMAGE: "{{ DOCKER_COMPOSE_SERVICE_IMAGES.redis.name }}:{{ DOCKER_COMPOSE_SERVICE_IMAGES.redis.tag }}"
 DATA_SERVICE_MANIFEST:
   dest: "{{ DOCKER_COMPOSE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
-    version: '3.9'
     services:
       postgres:
         image: "{{ DATA_PGSQL_IMAGE }}"
@@ -28,11 +31,29 @@ DATA_SERVICE_MANIFEST:
           - "postgres_data:/var/lib/postgresql/data"
         network_mode: host
         healthcheck:
-          test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_PASSWORD}"]
+          test: ["CMD-SHELL", "pg_isready -U {{ DATA_POSTGRES_USERNAME }} -d postgres"]
           interval: 10s
           timeout: 5s
           retries: 5
           start_period: 30s
+      pgadmin:
+        image: "{{ DATA_PGADMIN_IMAGE }}"
+        environment:
+          PGADMIN_DEFAULT_EMAIL: "{{ DATA_PGADMIN_DEFAULT_EMAIL }}"
+          PGADMIN_DEFAULT_PASSWORD: "{{ DATA_PGADMIN_DEFAULT_PASSWORD }}"
+          PGADMIN_LISTEN_PORT: 5050
+        volumes:
+          - "pgadmin_data:/var/lib/pgadmin"
+        network_mode: host
+        healthcheck:
+          test: ["CMD", "nc", "-z", "localhost", "5050"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 30s
+        depends_on:
+          postgres:
+            condition: service_healthy
       redis:
         image: "{{ DATA_REDIS_IMAGE }}"
         volumes:
@@ -46,6 +67,8 @@ DATA_SERVICE_MANIFEST:
           start_period: 5s
     volumes:
       postgres_data:
+        driver: local
+      pgadmin_data:
         driver: local
       redis_data:
         driver: local
