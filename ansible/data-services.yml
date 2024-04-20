@@ -5,7 +5,9 @@
   become: True
   vars_files:
   - "{{ playbook_dir }}/extravars/data-services.yml"
+  - "{{ playbook_dir }}/extravars/authentik.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/authentik.yml"
   roles:
     - role: docker_compose_service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ DATA_SERVICE_NAME }}"

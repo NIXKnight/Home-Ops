@@ -3,7 +3,7 @@ NGINX_SERVICE_NAME: "fw-nginx"
 NGINX_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Web Server - NGINX"
 NGINX_SERVICE_SYSTEMD_REQUIRES: "docker.service"
 NGINX_SERVICE_SYSTEMD_AFTER: "docker.service"
-NGINX_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service"
+NGINX_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ NGINX_SERVICE_NAME }}.service"
 NGINX_SERVICE_IMAGES:
   nginx:
     name: "nginx"
@@ -17,6 +17,11 @@ NGINX_COMPOSE_SERVICE_CONFIG_FILES:
     mode: 0644
     owner: "root"
     group: "root"
+  - src: "{{ playbook_dir }}/templates/nginx/authentik.conf.j2"
+    dest: "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/authentik.conf"
+    mode: 0644
+    owner: "root"
+    group: "root"
 NGINX_SERVICE_MANIFEST:
   dest: "{{ NGINX_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
@@ -27,3 +32,4 @@ NGINX_SERVICE_MANIFEST:
         volumes:
           - "{{ ACME_CERT_DIR }}:{{ ACME_CERT_DIR }}"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/nginx_top_level.conf:/etc/nginx/conf.d/01_nginx_top_level.conf"
+          - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/authentik.conf:/etc/nginx/conf.d/02_authentik.conf"
