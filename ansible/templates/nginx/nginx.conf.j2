@@ -1,0 +1,23 @@
+# NGINX HTTP Core Module Parameters
+tcp_nopush on;
+tcp_nodelay on;
+types_hash_max_size 2048;
+server_names_hash_bucket_size 64;
+server_tokens off;
+
+# NGINX Auto Index Module Parameters
+autoindex off;
+
+# NGINX HTTP Headers Module Parameters
+add_header X-Frame-Options SAMEORIGIN;
+add_header X-Content-Type-Options nosniff;
+add_header X-XSS-Protection "1; mode=block";
+
+# NGINX HTTP SSL Module Parameters
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+ssl_prefer_server_ciphers on;
+ssl_certificate {{ ACME_FULLCHAIN_FILE_PATH }};
+ssl_certificate_key {{ ACME_KEY_FILE_PATH }};
+ssl_ciphers 'ECDHE-RSA-AES256-GCM-SHA512:DHE-RSA-AES256-GCM-SHA512:ECDHE-RSA-AES256-GCM-SHA384:DHE-RSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-SHA384';
