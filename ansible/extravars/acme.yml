@@ -1,0 +1,17 @@
+---
+ACME_GIT_VERSION: "3.0.7"
+ACME_DOMAINS:
+  PRIMARY: "{{ ACME_DOMAIN_NAME }}"
+  ALT: [ "*.{{ ACME_DOMAIN_NAME }}" ]
+ACME_ENVIRONMENT_VARS:
+  HE_Username: "{{ ACME_HE_USERNAME }}"
+  HE_Password: "{{ ACME_HE_PASSWORD }}"
+ACME_CERT_DIR: "/etc/LetsEncrypt/{{ ACME_DOMAINS.PRIMARY }}"
+ACME_CERT_FILE_PATH: "{{ ACME_CERT_DIR }}/{{ ACME_DOMAINS.PRIMARY }}.crt"
+ACME_KEY_FILE_PATH: "{{ ACME_CERT_DIR }}/{{ ACME_DOMAINS.PRIMARY }}.key"
+ACME_CA_FILE_PATH: "{{ ACME_CERT_DIR }}/{{ ACME_DOMAINS.PRIMARY }}-ca.crt"
+ACME_FULLCHAIN_FILE_PATH: "{{ ACME_CERT_DIR }}/{{ ACME_DOMAINS.PRIMARY }}-fullchain.crt"
+ACME_ISSUE_COMMAND: |
+  {{ ACME_SHELL_SCRIPT }} --server letsencrypt --issue --dns dns_he --config-home {{ ACME_HOME_DIR }} --log {{ ACME_LOG_FILE }} --cert-file {{ ACME_CERT_FILE_PATH }} --key-file {{ ACME_KEY_FILE_PATH }} --ca-file {{ ACME_CA_FILE_PATH }} --fullchain-file {{ ACME_FULLCHAIN_FILE_PATH }} {% if ACME_DOMAINS.PRIMARY is defined and ACME_DOMAINS.PRIMARY | length %}-d {{ ACME_DOMAINS.PRIMARY }}{% endif %}{% if ACME_DOMAINS.ALT is defined and ACME_DOMAINS.ALT | length %}{% for domain in ACME_DOMAINS.ALT %} -d "{{ domain }}"{% endfor %}{% endif %}
+ACME_RENEW_CRON_COMMAND: |
+  {{ ACME_SHELL_SCRIPT }} --cron --home {{ ACME_HOME_DIR }} --log {{ ACME_LOG_FILE }}

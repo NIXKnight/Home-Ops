@@ -1,0 +1,10 @@
+---
+- name: Setup LetsEncrypt SSL Certificate
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  roles:
+    - acme
