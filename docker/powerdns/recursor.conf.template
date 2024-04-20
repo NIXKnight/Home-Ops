@@ -1,9 +1,13 @@
 # Basic settings
+threads=${PDNS_RECURSOR_THREADS}
 daemon=no
 quiet=no
 disable-syslog=yes
 local-address=0.0.0.0
-
+pdns-distributes-queries=yes
+max-cache-entries=${PDNS_RECURSOR_MAX_CACHE_ENTRIES}
+receive-buffer-size=${PDNS_RECURSOR_RECEIVE_BUFFER_SIZE}
+send-buffer-size=${PDNS_RECURSOR_SEND_BUFFER_SIZE}
 
 # Forward zones
 forward-zones=${PDNS_RECURSOR_LOCAL_ZONE}=${PDNS_RECURSOR_LOCAL_DNS_ADDRESS}:${PDNS_RECURSOR_LOCAL_DNS_PORT}

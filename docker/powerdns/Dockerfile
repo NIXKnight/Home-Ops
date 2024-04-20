@@ -6,7 +6,7 @@ ARG DEBIAN_FRONTEND noninteractive
 RUN set -eux; \
     apt-get update; \
     apt-get -y dist-upgrade; \
-    apt-get -y install --no-install-recommends curl ca-certificates gettext-base netcat-openbsd mariadb-client; \
+    apt-get -y install --no-install-recommends curl ca-certificates gettext-base netcat-openbsd mariadb-client postgresql-client bind9-dnsutils; \
     savedAptMark="$(apt-mark showmanual)"; \
     apt-mark auto '.*' > /dev/null; \
     [ -z "$savedAptMark" ] || apt-mark manual $savedAptMark > /dev/null; \
@@ -16,7 +16,7 @@ RUN set -eux; \
     } | tee /etc/apt/sources.list.d/pdns.list; \
     curl https://repo.powerdns.com/FD380FBB-pub.asc | tee /etc/apt/keyrings/pdns-pub.asc; \
     apt-get update; \
-    apt-get -y install --no-install-recommends pdns-server pdns-backend-mysql pdns-recursor; \
+    apt-get -y install --no-install-recommends pdns-server pdns-backend-mysql pdns-backend-pgsql pdns-recursor; \
     mkdir -p /etc/powerdns/template /var/run/pdns-recursor /var/run/pdns; \
     chown -R pdns:pdns /etc/powerdns /var/run/pdns-recursor /var/run/pdns; \
     apt-get clean all; \
