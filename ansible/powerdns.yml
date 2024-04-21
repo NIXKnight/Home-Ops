@@ -1,0 +1,19 @@
+---
+- name: Install/Upgrade PowerDNS
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/powerdns.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  roles:
+    - role: docker_compose_service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ POWERDNS_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ POWERDNS_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ POWERDNS_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ POWERDNS_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ POWERDNS_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ POWERDNS_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ POWERDNS_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ POWERDNS_SERVICE_MANIFEST }}"

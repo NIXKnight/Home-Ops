@@ -1,0 +1,59 @@
+---
+POWERDNS_SERVICE_NAME: "fw-powerdns"
+POWERDNS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DNS Services - PowerDNS Server and Recursor"
+POWERDNS_SERVICE_SYSTEMD_REQUIRES: "docker.service fw-data.service"
+POWERDNS_SERVICE_SYSTEMD_AFTER: "docker.service fw-data.service"
+POWERDNS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ POWERDNS_SERVICE_NAME }}.service"
+POWERDNS_SERVICE_IMAGES:
+  powerdns:
+    name: "nixknight/powerdns"
+    tag: "4.x"
+POWERDNS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/powerdns"
+POWERDNS_IMAGE: "{{ POWERDNS_SERVICE_IMAGES.powerdns.name }}:{{ POWERDNS_SERVICE_IMAGES.powerdns.tag }}"
+PDNS_DB_USERNAME: "powerdns"
+PDNS_DB_DATABASE: "powerdns"
+POWERDNS_SERVICE_MANIFEST:
+  dest: "{{ POWERDNS_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    services:
+      powerdns-server:
+        image: "{{ POWERDNS_IMAGE }}"
+        command: [ "/usr/local/bin/pdns.sh", "--pdns" ]
+        environment:
+          PDNS_DB_BACKEND: "gpgsql"
+          PDNS_DB_HOST: 127.0.0.1
+          PDNS_DB_USERNAME: "{{ PDNS_DB_USERNAME }}"
+          PDNS_DB_PASSWORD: "{{ PDNS_DB_PASSWORD }}"
+          PDNS_DB_DATABASE: "{{ PDNS_DB_DATABASE }}"
+          PDNS_LOCAL_PORT: 5300
+          PDNS_API_KEY: "{{ PDNS_API_KEY }}"
+          PDNS_API_ADDRESS: 127.0.0.1
+          PDNS_API_PORT: 8081
+          PDNS_API_ALLOW_FROM: 127.0.0.1/32
+        network_mode: host
+        healthcheck:
+          test: ["CMD-SHELL", "dig @127.0.0.1 -p 5300 localhost SOA +short"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 30s
+      powerdns-recursor:
+        image: "{{ POWERDNS_IMAGE }}"
+        command: [ "/usr/local/bin/pdns.sh", "--recursor" ]
+        user: root
+        environment:
+          PDNS_RECURSOR_LOCAL_ZONE: "{{ ACME_DOMAIN_NAME }}"
+          PDNS_RECURSOR_LOCAL_DNS_ADDRESS: 127.0.0.1
+          PDNS_RECURSOR_LOCAL_DNS_PORT: 5300
+          PDNS_RECURSOR_UPSTREAM_RESOLVERS: "8.8.8.8;8.8.4.4"
+          PDNS_RECURSOR_API_KEY: "{{ PDNS_API_KEY }}"
+        network_mode: host
+        healthcheck:
+          test: ["CMD-SHELL", "dig @127.0.0.1 google.com +short"]
+          interval: 10s
+          timeout: 5s
+          retries: 5
+          start_period: 30s
+        depends_on:
+          powerdns-server:
+            condition: service_healthy
