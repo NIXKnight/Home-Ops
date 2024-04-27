@@ -45,11 +45,15 @@ POWERDNS_SERVICE_MANIFEST:
           PDNS_RECURSOR_LOCAL_ZONE: "{{ ACME_DOMAIN_NAME }}"
           PDNS_RECURSOR_LOCAL_DNS_ADDRESS: 127.0.0.1
           PDNS_RECURSOR_LOCAL_DNS_PORT: 5300
+          PDNS_RECURSOR_LOCAL_ADDRESS: 0.0.0.0:5301
           PDNS_RECURSOR_UPSTREAM_RESOLVERS: "8.8.8.8;8.8.4.4"
+          PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS: 127.0.0.1
+          PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT: 8082
+          PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM: 127.0.0.1/32
           PDNS_RECURSOR_API_KEY: "{{ PDNS_API_KEY }}"
         network_mode: host
         healthcheck:
-          test: ["CMD-SHELL", "dig @127.0.0.1 google.com +short"]
+          test: ["CMD-SHELL", "dig @127.0.0.1 -p 5301 google.com +short"]
           interval: 10s
           timeout: 5s
           retries: 5

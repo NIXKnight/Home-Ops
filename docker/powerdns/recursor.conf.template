@@ -3,7 +3,7 @@ threads=${PDNS_RECURSOR_THREADS}
 daemon=no
 quiet=no
 disable-syslog=yes
-local-address=0.0.0.0
+local-address=${PDNS_RECURSOR_LOCAL_ADDRESS}
 pdns-distributes-queries=yes
 
 # Forward zones
@@ -14,4 +14,7 @@ forward-zones-recurse=.=${PDNS_RECURSOR_UPSTREAM_RESOLVERS}
 
 # API settings
 webserver=yes
+webserver-address=${PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS}
+webserver-port=${PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT}
+webserver-allow-from=${PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM}
 api-key=${PDNS_RECURSOR_API_KEY}
