@@ -1,0 +1,25 @@
+---
+FIREWALL_LAN_INTERFACE: "enp3s0"
+FIREWALL_WAN_INTERFACE: "enp2s0"
+WAN_UPLOAD_BANDWIDTH: "50mbit"
+WAN_DOWNLOAD_BANDWIDTH: "50mbit"
+FIREWALL_SSH_ENABLED: true
+FIREWALL_OPEN_PORTS_ENABLED: true
+FIREWALL_OPEN_PORTS:
+  # Allow NGINX access for local services
+  - INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
+    PROTOCOL: "tcp"
+    PORT: "80"
+  - INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
+    PROTOCOL: "tcp"
+    PORT: "443"
+FIREWALL_FORWARDED_PORTS_PRIV2UNPRIV:
+  - PROTOCOL: "udp"
+    PORT: "53"
+    DEST_PORT: "5301"
+FIREWALL_ADDITIONAL_RULES:
+  # Allow DNS requests made by the recursor and their response
+  - "iptables -A INPUT -i {{ FIREWALL_WAN_INTERFACE }} -p udp -s 8.8.8.8 --sport 53 -j ACCEPT"
+  - "iptables -A INPUT -i {{ FIREWALL_WAN_INTERFACE }} -p udp -s 8.8.4.4 --sport 53 -j ACCEPT"
+  - "iptables -A OUTPUT -o {{ FIREWALL_WAN_INTERFACE }} -p udp -d 8.8.8.8 --dport 53 -j ACCEPT"
+  - "iptables -A OUTPUT -o {{ FIREWALL_WAN_INTERFACE }} -p udp -d 8.8.4.4 --dport 53 -j ACCEPT"

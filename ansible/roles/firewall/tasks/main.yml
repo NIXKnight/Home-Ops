@@ -27,6 +27,19 @@
     executable: "/bin/bash"
   when: generate_iptables_shell_script.changed
 
+- name: Configure rsyslog for IPTables
+  template:
+    src: "templates//etc/rsyslog.d/iptables.conf.j2"
+    dest: /etc/rsyslog.d/iptables.conf
+    mode: 0644
+  register: generate_rsyslog_iptables_config
+
+- name: Restart rsyslog
+  systemd:
+    name: "rsyslog"
+    state: restarted
+  when: generate_rsyslog_iptables_config.changed
+
 - name: Restart netfilter-persistent
   systemd:
     name: "netfilter-persistent"

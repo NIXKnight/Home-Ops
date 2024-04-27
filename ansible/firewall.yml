@@ -1,0 +1,10 @@
+---
+- name: Setup/Update Firewall
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/firewall.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/firewall.yml"
+  roles:
+    - firewall
