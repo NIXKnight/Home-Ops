@@ -22,6 +22,16 @@ NGINX_COMPOSE_SERVICE_CONFIG_FILES:
     mode: 0644
     owner: "root"
     group: "root"
+  - src: "{{ playbook_dir }}/templates/nginx/pdns.conf.j2"
+    dest: "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pdns.conf"
+    mode: 0644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/nginx/pgadmin.conf.j2"
+    dest: "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pgadmin.conf"
+    mode: 0644
+    owner: "root"
+    group: "root"
 NGINX_SERVICE_MANIFEST:
   dest: "{{ NGINX_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
@@ -33,3 +43,5 @@ NGINX_SERVICE_MANIFEST:
           - "{{ ACME_CERT_DIR }}:{{ ACME_CERT_DIR }}"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/nginx_top_level.conf:/etc/nginx/conf.d/01_nginx_top_level.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/authentik.conf:/etc/nginx/conf.d/02_authentik.conf"
+          - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pdns.conf:/etc/nginx/conf.d/03_pdns.conf"
+          - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pgadmin.conf:/etc/nginx/conf.d/04_pgadmin.conf"
