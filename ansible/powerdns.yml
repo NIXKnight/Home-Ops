@@ -17,3 +17,40 @@
       DOCKER_COMPOSE_SERVICE_IMAGES: "{{ POWERDNS_SERVICE_IMAGES }}"
       DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ POWERDNS_SERVICE_COMPOSE_PATH }}"
       DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ POWERDNS_SERVICE_MANIFEST }}"
+
+- name: Add/Update Local DNS Zone via OpenTofu
+  connection: local
+  hosts: localhost
+  gather_facts: False
+  become: False
+  vars_files:
+  - "{{ playbook_dir }}/extravars/powerdns.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  tasks:
+    - name: Generate PowerDNS Terraform Config and Backend Files
+      template:
+        src: "{{ item.src }}"
+        dest: "{{ item.dest }}"
+        mode: "{{ item.mode }}"
+      with_items: "{{ PDNS_OPENTOFU_TEMPLATES }}"
+
+    - name: Create/Update DNS Zone and Records
+      community.general.terraform:
+        project_path: "{{ PDNS_OPENTOFU_PROJECT_PATH }}"
+        binary_path: "{{ PDNS_OPENTOFU_BIN_PATH }}"
+        state: present
+        force_init: true
+        init_reconfigure: true
+      environment:
+        PDNS_API_KEY: "{{ PDNS_API_KEY }}"
+        PDNS_SERVER_URL: "{{ PDNS_OPENTOFU_SERVER_URL }}"
+        TF_VAR_dns_config_file: "{{ PDNS_OPENTOFU_DNS_CONFIG_FILE }}"
+
+    - name: Remove PowerDNS Terraform Config and Backend Files
+      ansible.builtin.file:
+        path: "{{ item.dest }}"
+        state: absent
+      with_items: "{{ PDNS_OPENTOFU_TEMPLATES }}"
