@@ -4,10 +4,10 @@ on:
     branches:
       - main
     paths:
-      - "docker/kea/init.sh"
-      - "docker/kea/Dockerfile"
-      - "docker/kea/keahook.py"
-      - .github/workflows/kea-container-image-build.yml
+      - "docker/kea/host-cmd-hook/init.sh"
+      - "docker/kea/host-cmd-hook/Dockerfile"
+      - "docker/kea/host-cmd-hook/keahook.py"
+      - ".github/workflows/kea-host-cmd-hook-container-image-build.yml"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +24,6 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3.2.0
         with:
-          context: docker/kea/
+          context: docker/kea/host-cmd-hook/
           push: true
           tags: "${{ secrets.DOCKER_HUB_USERNAME }}/kea:latest,${{ secrets.DOCKER_HUB_USERNAME }}/kea:2.4"
