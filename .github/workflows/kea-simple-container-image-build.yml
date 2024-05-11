@@ -1,13 +1,11 @@
-name: Build Kea Container Image with Host Commands Hook
+name: Build Kea Simple Container Image
 on:
   push:
     branches:
       - main
     paths:
-      - "docker/kea/host-cmd-hook/init.sh"
-      - "docker/kea/host-cmd-hook/Dockerfile"
-      - "docker/kea/host-cmd-hook/keahook.py"
-      - ".github/workflows/kea-host-cmd-hook-container-image-build.yml"
+      - "docker/kea/simple/Dockerfile"
+      - ".github/workflows/kea-simple-container-image-build.yml"
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,6 +22,6 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v3.2.0
         with:
-          context: docker/kea/host-cmd-hook/
+          context: docker/kea/simple/
           push: true
-          tags: "${{ secrets.DOCKER_HUB_USERNAME }}/kea:host-cmd-hook-latest,${{ secrets.DOCKER_HUB_USERNAME }}/kea:host-cmd-hook-2.4"
+          tags: "${{ secrets.DOCKER_HUB_USERNAME }}/kea:simple-latest,${{ secrets.DOCKER_HUB_USERNAME }}/kea:simple-2.4"
