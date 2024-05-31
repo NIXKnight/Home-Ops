@@ -25,32 +25,15 @@
   become: False
   vars_files:
   - "{{ playbook_dir }}/extravars/powerdns.yml"
+  - "{{ playbook_dir }}/extravars/common.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
-  tasks:
-    - name: Generate PowerDNS Terraform Config and Backend Files
-      template:
-        src: "{{ item.src }}"
-        dest: "{{ item.dest }}"
-        mode: "{{ item.mode }}"
-      with_items: "{{ PDNS_OPENTOFU_TEMPLATES }}"
-
-    - name: Create/Update DNS Zone and Records
-      community.general.terraform:
-        project_path: "{{ PDNS_OPENTOFU_PROJECT_PATH }}"
-        binary_path: "{{ PDNS_OPENTOFU_BIN_PATH }}"
-        state: present
-        force_init: true
-        init_reconfigure: true
-      environment:
-        PDNS_API_KEY: "{{ PDNS_API_KEY }}"
-        PDNS_SERVER_URL: "{{ PDNS_OPENTOFU_SERVER_URL }}"
-        TF_VAR_dns_config_file: "{{ PDNS_OPENTOFU_DNS_CONFIG_FILE }}"
-
-    - name: Remove PowerDNS Terraform Config and Backend Files
-      ansible.builtin.file:
-        path: "{{ item.dest }}"
-        state: absent
-      with_items: "{{ PDNS_OPENTOFU_TEMPLATES }}"
+  roles:
+    - role: opentofu
+      OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
+      OPENTOFU_PROJECT_PATH: "{{ PDNS_TOFU_PROJECT_PATH }}"
+      OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ PDNS_TOFU_STATE_DB_SCHEMA_NAME }}"
+      OPENTOFU_MODULE_CONFIG: "{{ PDNS_TOFU_MODULE_CONFIG }}"
+      OEPNTOFU_ENV: "{{ PDNS_TOFU_ENV }}"

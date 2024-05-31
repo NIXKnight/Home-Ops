@@ -1,0 +1,23 @@
+---
+# tasks file for opentofu
+- name: Generate OpenTofu Config and Backend Files
+  template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    mode: "{{ item.mode }}"
+  with_items: "{{ OPENTOFU_TEMPLATES }}"
+
+- name: Apply OpenTofu Module {{ OPENTOFU_PROJECT_PATH }}
+  community.general.terraform:
+    project_path: "{{ OPENTOFU_PROJECT_PATH }}"
+    binary_path: "{{ OPENTOFU_BIN_PATH }}"
+    state: present
+    force_init: true
+    init_reconfigure: true
+  environment: "{{ OEPNTOFU_ENV }}"
+
+- name: Remove OpenTofu Config and Backend Files
+  ansible.builtin.file:
+    path: "{{ item.dest }}"
+    state: absent
+  with_items: "{{ OPENTOFU_TEMPLATES }}"

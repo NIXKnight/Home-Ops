@@ -1,7 +1,0 @@
-terraform {
-  backend "{{ PDNS_OPENTOFU_BACKEND_CONFIG.type }}" {
-    {% for key, value in PDNS_OPENTOFU_BACKEND_CONFIG.config.items() %}
-    {{ key }} = "{{ value }}"
-    {% endfor %}
-  }
-}

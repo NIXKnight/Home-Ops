@@ -62,29 +62,19 @@ POWERDNS_SERVICE_MANIFEST:
           powerdns-server:
             condition: service_healthy
 
-PDNS_OPENTOFU_PROJECT_PATH: "../terraform/modules/powerdns"
-PDNS_OPENTOFU_BIN_PATH: "{{ lookup('ansible.builtin.env', 'HOME') }}/.local/bin/tofu"
-PDNS_OPENTOFU_STATE_DB: "postgres://{{ TF_STATE_USERNAME }}:{{ TF_STATE_PASSWORD }}@pdns.{{ ACME_DOMAIN_NAME }}/{{ TF_STATE_DATABASE }}?sslmode=disable"
-PDNS_OPENTOFU_SCHEMA_NAME: "pdns"
-PDNS_OPENTOFU_DNS_CONFIG_FILE: "/tmp/pdns_config.yaml"
-PDNS_OPENTOFU_BACKEND_FILE: "{{ PDNS_OPENTOFU_PROJECT_PATH }}/backend.tf"
-PDNS_OPENTOFU_TEMPLATES:
-  - src: "templates/opentofu/opentofu_pdns_config.yaml.j2"
-    dest: "{{ PDNS_OPENTOFU_DNS_CONFIG_FILE }}"
-    mode: 0644
-  - src: "templates/opentofu/opentofu_backend.tf.j2"
-    dest: "{{ PDNS_OPENTOFU_BACKEND_FILE }}"
-    mode: 0644
-PDNS_OPENTOFU_BACKEND_CONFIG:
-  type: "pg"
-  config:
-    conn_str: "{{ PDNS_OPENTOFU_STATE_DB }}"
-    schema_name: "{{ PDNS_OPENTOFU_SCHEMA_NAME }}"
-PDNS_OPENTOFU_PLAN_FILE: "/tmp/pdns_plan.out"
-PDNS_OPENTOFU_DNS_DEFAULT_TTL: "60"
-PDNS_OPENTOFU_SERVER_URL: "https://pdns.{{ ACME_DOMAIN_NAME }}"
+PDNS_SERVER_URL: "https://pdns.{{ ACME_DOMAIN_NAME }}"
+PDNS_TOFU_MODULE_CONFIG_FILE_DEST: "/tmp/pdns_config.yaml"
+
+PDNS_TOFU_PROJECT_PATH: "../terraform/modules/powerdns"
+PDNS_TOFU_STATE_DB_SCHEMA_NAME: "pdns"
+PDNS_TOFU_DNS_DEFAULT_TTL: 60
+PDNS_TOFU_ENV:
+  PDNS_API_KEY: "{{ PDNS_API_KEY }}"
+  PDNS_SERVER_URL: "{{ PDNS_SERVER_URL }}"
+  TF_VAR_dns_config_file: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
+
 # DNS Zone config example
-# PDNS_OPENTOFU_DNS_CONFIG:
+# PDNS_TOFU_MODULE_CONFIG:
 #   dns_zones:
 #   - name: "{{ ACME_DOMAIN_NAME }}"
 #     kind: "Native"

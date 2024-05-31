@@ -37,3 +37,7 @@ LC_EXTRA_PACKAGES:
 # motd variables
 memory_info: False
 network_info: True
+
+# opentofu variables
+OPENTOFU_BIN_PATH: "{{ lookup('ansible.builtin.env', 'HOME') }}/.local/bin/tofu"
+OPENTOFU_STATE_DB_HOST: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
