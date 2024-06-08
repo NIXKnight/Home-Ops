@@ -76,3 +76,39 @@ AUTHENTIK_SERVICE_MANIFEST:
         driver: local
       certs_data:
         driver: local
+
+AUTHENTIK_SERVER_URL: "https://auth.{{ ACME_DOMAIN_NAME }}"
+AUTHENTIK_TOFU_MODULE_CONFIG_FILE_DEST: "/tmp/authentik_config.yaml"
+AUTHENTIK_TOFU_PROJECT_PATH: "../terraform/modules/authentik"
+AUTHENTIK_TOFU_STATE_DB_SCHEMA_NAME: "authentik"
+AUTHENTIK_TOFU_ENV:
+  AUTHENTIK_URL: "{{ AUTHENTIK_SERVER_URL }}"
+  AUTHENTIK_TOKEN: "{{ AUTHENTIK_BOOTSTRAP_TOKEN }}"
+  TF_VAR_authentik_config_file: "{{ AUTHENTIK_TOFU_MODULE_CONFIG_FILE_DEST }}"
+
+# AUTHENTIK_TOFU_MODULE_CONFIG:
+#   scope_mappings:
+#     - name: "jenkins"
+#       managed_list:
+#         - "goauthentik.io/providers/oauth2/scope-email"
+#         - "goauthentik.io/providers/oauth2/scope-openid"
+#         - "goauthentik.io/providers/oauth2/scope-profile"
+#   providers:
+#     - name: "jenkins"
+#       client_id: "jenkins"
+#       client_secret: "jenkins"
+#       property_mappings: "jenkins"
+#       redirect_uris:
+#         - "http://127.0.0.1:8080/securityRealm/finishLogin"
+#   applications:
+#     - name: "jenkins"
+#       slug: "jenkins"
+#       provider: "jenkins"
+#   users:
+#     - username: "sali"
+#       name: "sali"
+#       password: "password"
+#   groups:
+#     - name: "FirewallAdmin"
+#       users:
+#         - "sali"
