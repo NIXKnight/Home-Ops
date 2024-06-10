@@ -1,0 +1,26 @@
+---
+JENKINS_PLUGINS:
+  - { name: "antisamy-markup-formatter", version: "latest" }
+  - { name: "build-timeout", version: "latest" }
+  - { name: "conditional-buildstep", version: "latest" }
+  - { name: "configuration-as-code", version: "latest" }
+  - { name: "copyartifact", version: "latest" }
+  - { name: "credentials-binding", version: "latest" }
+  - { name: "dark-theme", version: "latest" }
+  - { name: "docker-commons", version: "latest" }
+  - { name: "docker-plugin", version: "latest" }
+  - { name: "docker-workflow", version: "latest" }
+  - { name: "email-ext", version: "latest" }
+  - { name: "github-branch-source", version: "latest" }
+  - { name: "git-parameter", version: "latest" }
+  - { name: "job-dsl", version: "latest" }
+  - { name: "mailer", version: "latest" }
+  - { name: "matrix-auth", version: "latest" }
+  - { name: "oic-auth", version: "latest" }
+  - { name: "pam-auth", version: "latest" }
+  - { name: "parameterized-trigger", version: "latest" }
+  - { name: "pipeline-github-lib", version: "latest" }
+  - { name: "pipeline-stage-view", version: "latest" }
+  - { name: "timestamper", version: "latest" }
+  - { name: "workflow-aggregator", version: "latest" }
+  - { name: "ws-cleanup", version: "latest" }

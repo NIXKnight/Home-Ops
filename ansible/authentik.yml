@@ -28,6 +28,7 @@
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/authentik.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/jenkins.yml"
   roles:
     - role: opentofu
       OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ AUTHENTIK_TOFU_MODULE_CONFIG_FILE_DEST }}"

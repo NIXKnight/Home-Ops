@@ -1,0 +1,54 @@
+---
+JENKINS_SERVICE_NAME: "fw-jenkins"
+JENKINS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Automation - Jenkins"
+JENKINS_SERVICE_SYSTEMD_REQUIRES: "docker.service fw-authentik.service"
+JENKINS_SERVICE_SYSTEMD_AFTER: "docker.service fw-authentik.service"
+JENKINS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service"
+JENKINS_SERVICE_IMAGES:
+  server:
+    name: "jenkins/jenkins"
+    tag: "2.452.1-lts-jdk17"
+JENKINS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/jenkins"
+JENKINS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/jenkins"
+JENKINS_IMAGE: "{{ JENKINS_SERVICE_IMAGES.server.name }}:{{ JENKINS_SERVICE_IMAGES.server.tag }}"
+JENKINS_COMPOSE_SERVICE_CONFIG_FILES:
+  - src: "{{ playbook_dir }}/templates/jenkins/jcasc-config.yaml.j2"
+    dest: "{{ JENKINS_COMPOSE_SERVICE_CONFIG_PATH }}/jcasc-config.yaml"
+    mode: 644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/jenkins/jenkins-plugins.txt.j2"
+    dest: "{{ JENKINS_COMPOSE_SERVICE_CONFIG_PATH }}/jenkins-plugins.txt"
+    mode: 644
+    owner: "root"
+    group: "root"
+JENKINS_SERVICE_MANIFEST:
+  dest: "{{ JENKINS_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    services:
+      init:
+        image: "{{ JENKINS_IMAGE }}"
+        command: jenkins-plugin-cli --plugin-file /tmp/plugins.txt --verbose
+        environment:
+          PLUGIN_DIR: "/var/jenkins_home/plugins"
+        volumes:
+          - "jenkins_data:/var/jenkins_home"
+          - "{{ JENKINS_COMPOSE_SERVICE_CONFIG_PATH }}/jenkins-plugins.txt:/tmp/plugins.txt"
+        network_mode: host
+      server:
+        image: "{{ JENKINS_IMAGE }}"
+        environment:
+          JAVA_OPTS: "-Xms2048m -Xmx2048m -Djenkins.install.runSetupWizard=false -Dcasc.jenkins.config=/var/jenkins_home/casc_configs"
+        group_add:
+          - "${DOCKER_GID}"
+        volumes:
+          - "jenkins_data:/var/jenkins_home"
+          - "/var/run/docker.sock:/var/run/docker.sock"
+          - "{{ JENKINS_COMPOSE_SERVICE_CONFIG_PATH }}/jcasc-config.yaml:/var/jenkins_home/casc_configs/jcasc-config.yaml"
+        network_mode: host
+        depends_on:
+          init:
+            condition: service_completed_successfully
+    volumes:
+      jenkins_data:
+        driver: local
