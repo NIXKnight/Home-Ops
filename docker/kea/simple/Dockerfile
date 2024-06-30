@@ -26,3 +26,6 @@ RUN set -eux; \
         isc-kea-dhcp6-server; \
     apt-get clean all; \
     rm -rf /var/lib/apt/*;
+
+ENV USER=_kea
+USER $USER
