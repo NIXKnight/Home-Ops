@@ -15,30 +15,9 @@ function check_vars {
   fi
 }
 
-# Function to generate PowerDNS Server configuration
-function generate_pdns_config {
-  : ${PDNS_API_ALLOW_FROM:=127.0.0.1}
-  export PDNS_API_ALLOW_FROM
-  check_vars PDNS_DB_BACKEND PDNS_DB_HOST PDNS_DB_USERNAME PDNS_DB_PASSWORD PDNS_DB_DATABASE PDNS_LOCAL_PORT PDNS_API_KEY PDNS_API_ADDRESS PDNS_API_PORT PDNS_API_ALLOW_FROM
-  envsubst < /etc/powerdns/template/pdns.conf.template > /etc/powerdns/pdns.conf
-}
-
-# Function to generate PowerDNS Recursor configuration
-function generate_recursor_config {
-  CPU_CORES=$(nproc)
-  HALF_CPU_CORES=$((CPU_CORES / 2))
-  if [ "$HALF_CPU_CORES" -lt 2 ]; then
-    export PDNS_RECURSOR_THREADS=2
-  else
-    export PDNS_RECURSOR_THREADS=$HALF_CPU_CORES
-  fi
-  echo -e "PDNS Recursor threads set to $PDNS_RECURSOR_THREADS"
-  check_vars PDNS_RECURSOR_LOCAL_ZONE PDNS_RECURSOR_LOCAL_DNS_ADDRESS PDNS_RECURSOR_LOCAL_DNS_PORT PDNS_RECURSOR_UPSTREAM_RESOLVERS PDNS_RECURSOR_LOCAL_ADDRESS PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM
-  envsubst < /etc/powerdns/template/recursor.conf.template > /etc/powerdns/recursor.conf
-}
-
 # Function to check and initialize PowerDNS Server
 function check_init_powerdns_server {
+  check_vars PDNS_DB_BACKEND PDNS_DB_HOST PDNS_DB_USERNAME PDNS_DB_PASSWORD PDNS_DB_DATABASE
   case "$PDNS_DB_BACKEND" in
     gmysql)
       DB_BACKEND_NAME="MySQL"
@@ -81,16 +60,12 @@ function check_init_powerdns_server {
 # Function to start PowerDNS Server
 function start_pdns {
   check_init_powerdns_server
-  echo "Generating PowerDNS Authoritative Server configuration..."
-  generate_pdns_config
   echo "Starting PowerDNS Authoritative Server..."
   exec /usr/sbin/pdns_server --config-dir=/etc/powerdns/
 }
 
 # Function to start PowerDNS Recursor
 function start_recursor {
-  echo "Generating PowerDNS Recursor configuration..."
-  generate_recursor_config
   echo "Starting PowerDNS Recursor..."
   exec /usr/sbin/pdns_recursor --config-dir=/etc/powerdns/
 }
