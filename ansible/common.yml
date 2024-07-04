@@ -1,5 +1,5 @@
 ---
-- name: Install/Upgrade PostgreSQL and Redis
+- name: Run Common Roles
   hosts: all
   gather_facts: yes
   become: True
