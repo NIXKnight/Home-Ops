@@ -9,9 +9,40 @@ POWERDNS_SERVICE_IMAGES:
     name: "nixknight/powerdns"
     tag: "4.x"
 POWERDNS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/powerdns"
+POWERDNS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/powerdns"
 POWERDNS_IMAGE: "{{ POWERDNS_SERVICE_IMAGES.powerdns.name }}:{{ POWERDNS_SERVICE_IMAGES.powerdns.tag }}"
-PDNS_DB_USERNAME: "powerdns"
-PDNS_DB_DATABASE: "powerdns"
+POWERDNS_COMPOSE_SERVICE_CONFIG_FILES:
+  - src: "{{ playbook_dir }}/templates/pdns/recursor.conf.j2"
+    dest: "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/recursor.conf"
+    mode: 644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/pdns/server.conf.j2"
+    dest: "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/server.conf"
+    mode: 644
+    owner: "root"
+    group: "root"
+
+PDNS_SERVER_DB_BACKEND: "gpgsql"
+PDNS_SERVER_DB_HOST: 127.0.0.1
+PDNS_SERVER_DB_USERNAME: "powerdns"
+PDNS_SERVER_DB_DATABASE: "powerdns"
+PDNS_SERVER_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
+PDNS_SERVER_LOCAL_PORT: 5300
+PDNS_SERVER_API_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
+PDNS_SERVER_API_PORT: 8081
+PDNS_SERVER_API_ALLOW_FROM: "{{ PDNS_SERVER_DB_HOST }}/32"
+
+PDNS_RECURSOR_THREADS: 4
+PDNS_RECURSOR_LOCAL_ZONE: "{{ ACME_DOMAIN_NAME }}"
+PDNS_RECURSOR_LOCAL_DNS_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
+PDNS_RECURSOR_LOCAL_DNS_PORT: 5300
+PDNS_RECURSOR_LISTEN_ADDRESS: 0.0.0.0:5301
+PDNS_RECURSOR_UPSTREAM_RESOLVERS: "8.8.8.8;8.8.4.4"
+PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
+PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT: 8082
+PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM: "{{ PDNS_SERVER_API_ALLOW_FROM }}"
+
 POWERDNS_SERVICE_MANIFEST:
   dest: "{{ POWERDNS_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
@@ -20,19 +51,16 @@ POWERDNS_SERVICE_MANIFEST:
         image: "{{ POWERDNS_IMAGE }}"
         command: [ "/usr/local/bin/pdns.sh", "--pdns" ]
         environment:
-          PDNS_DB_BACKEND: "gpgsql"
-          PDNS_DB_HOST: 127.0.0.1
-          PDNS_DB_USERNAME: "{{ PDNS_DB_USERNAME }}"
-          PDNS_DB_PASSWORD: "{{ PDNS_DB_PASSWORD }}"
-          PDNS_DB_DATABASE: "{{ PDNS_DB_DATABASE }}"
-          PDNS_LOCAL_PORT: 5300
-          PDNS_API_KEY: "{{ PDNS_API_KEY }}"
-          PDNS_API_ADDRESS: 127.0.0.1
-          PDNS_API_PORT: 8081
-          PDNS_API_ALLOW_FROM: 127.0.0.1/32
+          PDNS_DB_BACKEND: "{{ PDNS_SERVER_DB_BACKEND }}"
+          PDNS_DB_HOST: "{{ PDNS_SERVER_DB_HOST }}"
+          PDNS_DB_USERNAME: "{{ PDNS_SERVER_DB_USERNAME }}"
+          PDNS_DB_PASSWORD: "{{ PDNS_SERVER_DB_PASSWORD }}"
+          PDNS_DB_DATABASE: "{{ PDNS_SERVER_DB_DATABASE }}"
         network_mode: host
+        volumes:
+          - "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/server.conf:/etc/powerdns/pdns.conf"
         healthcheck:
-          test: ["CMD-SHELL", "dig @127.0.0.1 -p 5300 localhost SOA +short"]
+          test: ["CMD-SHELL", "dig @127.0.0.1 -p 5300 ns1.{{ ACME_DOMAIN_NAME }} SOA +short"]
           interval: 10s
           timeout: 5s
           retries: 5
@@ -40,21 +68,12 @@ POWERDNS_SERVICE_MANIFEST:
       powerdns-recursor:
         image: "{{ POWERDNS_IMAGE }}"
         command: [ "/usr/local/bin/pdns.sh", "--recursor" ]
-        user: root
-        environment:
-          PDNS_RECURSOR_LOCAL_ZONE: "{{ ACME_DOMAIN_NAME }}"
-          PDNS_RECURSOR_LOCAL_DNS_ADDRESS: 127.0.0.1
-          PDNS_RECURSOR_LOCAL_DNS_PORT: 5300
-          PDNS_RECURSOR_LOCAL_ADDRESS: 0.0.0.0:5301
-          PDNS_RECURSOR_UPSTREAM_RESOLVERS: "8.8.8.8;8.8.4.4"
-          PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS: 127.0.0.1
-          PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT: 8082
-          PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM: 127.0.0.1/32
-          PDNS_RECURSOR_API_KEY: "{{ PDNS_API_KEY }}"
         network_mode: host
+        volumes:
+          - "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/recursor.conf:/etc/powerdns/recursor.conf"
         healthcheck:
           test: ["CMD-SHELL", "dig @127.0.0.1 -p 5301 google.com +short"]
-          interval: 10s
+          interval: 15s
           timeout: 5s
           retries: 5
           start_period: 30s
@@ -69,7 +88,7 @@ PDNS_TOFU_PROJECT_PATH: "../terraform/modules/powerdns"
 PDNS_TOFU_STATE_DB_SCHEMA_NAME: "pdns"
 PDNS_TOFU_DNS_DEFAULT_TTL: 60
 PDNS_TOFU_ENV:
-  PDNS_API_KEY: "{{ PDNS_API_KEY }}"
+  PDNS_API_KEY: "{{ PDNS_SERVER_API_KEY }}"
   PDNS_SERVER_URL: "{{ PDNS_SERVER_URL }}"
   TF_VAR_dns_config_file: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
 
@@ -84,4 +103,4 @@ PDNS_TOFU_ENV:
 #       - name: "ns1"
 #         type: "A"
 #         content: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
-#         ttl: "{{ PDNS_OPENTOFU_DNS_DEFAULT_TTL }}"
+#         ttl: "{{ PDNS_TOFU_DNS_DEFAULT_TTL }}"

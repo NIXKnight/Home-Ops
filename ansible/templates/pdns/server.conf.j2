@@ -1,0 +1,23 @@
+# Basic settings
+daemon=no
+guardian=no
+write-pid=no
+log-timestamp=yes
+disable-syslog=yes
+local-address={{ PDNS_SERVER_ADDRESS }}
+local-port={{ PDNS_SERVER_LOCAL_PORT }}
+
+# MySQL Backend settings
+launch={{ PDNS_SERVER_DB_BACKEND }}
+{{ PDNS_SERVER_DB_BACKEND }}-host={{ PDNS_SERVER_DB_HOST }}
+{{ PDNS_SERVER_DB_BACKEND }}-user={{ PDNS_SERVER_DB_USERNAME }}
+{{ PDNS_SERVER_DB_BACKEND }}-password={{ PDNS_SERVER_DB_PASSWORD }}
+{{ PDNS_SERVER_DB_BACKEND }}-dbname={{ PDNS_SERVER_DB_DATABASE }}
+
+# API settings
+api=yes
+api-key={{ PDNS_SERVER_API_KEY }}
+webserver=yes
+webserver-address={{ PDNS_SERVER_API_ADDRESS }}
+webserver-port={{ PDNS_SERVER_API_PORT }}
+webserver-allow-from={{ PDNS_SERVER_API_ALLOW_FROM }}
