@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -x
+
 # {{ ansible_managed }}
 
 {% for iptables_version in [ 'iptables' ] %}
@@ -14,10 +16,14 @@
 {{iptables_version }} -A INPUT -i lo -j ACCEPT
 {{iptables_version }} -A OUTPUT -o lo -j ACCEPT
 
-{% if FIREWALL_MAC_RESTRICTION_ENABLED %}
-{% for MAC_INFO in FIREWALL_MAC_WHITELIST %}
-{{iptables_version }} -A FORWARD -i {{ MAC_INFO.INTERFACE }} -m mac ! --mac-source {{ MAC_INFO.MAC_ADDRESS }} -j LOG --log-prefix "Rejected MAC: "
-{{iptables_version }} -A FORWARD -i {{ MAC_INFO.INTERFACE }} -m mac --mac-source {{ MAC_INFO.MAC_ADDRESS }} -j ACCEPT
+{% if FIREWALL_LAN_MAC_RESTRICTION_ENABLED %}
+{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
+{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ MAC_ADDRESS }}" -j ACCEPT
+{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ MAC_ADDRESS }}" -j ACCEPT
+{% endfor %}
+{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
+{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source "{{ MAC_ADDRESS }}" -j LOG --log-prefix "Rejected MAC: "
+{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source "{{ MAC_ADDRESS }}" -j LOG --log-prefix "Rejected MAC: "
 {% endfor %}
 {% endif %}
 

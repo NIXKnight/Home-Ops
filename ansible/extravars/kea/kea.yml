@@ -1,0 +1,33 @@
+---
+KEA_SERVICE_NAME: "fw-kea"
+KEA_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DHCP - Kea DHCP IPv4"
+KEA_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service"
+KEA_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service"
+KEA_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ KEA_SERVICE_NAME }}.service"
+KEA_SERVICE_IMAGES:
+  kea:
+    name: "nixknight/kea"
+    tag: "simple-2.4"
+KEA_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/kea"
+KEA_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/kea"
+KEA_IMAGE: "{{ KEA_SERVICE_IMAGES.kea.name }}:{{ KEA_SERVICE_IMAGES.kea.tag }}"
+KEA_COMPOSE_SERVICE_CONFIG_FILES:
+  - src: "{{ playbook_dir }}/templates/kea/dhcp4-config.json.j2"
+    dest: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp4.json"
+    mode: 644
+    owner: "root"
+    group: "root"
+KEA_SERVICE_MANIFEST:
+  dest: "{{ KEA_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    services:
+      dhcp-server:
+        image: "{{ KEA_IMAGE }}"
+        command: ["/usr/sbin/kea-dhcp4", "-c", "/etc/kea/kea-dhcp4.json"]
+        environment:
+          KEA_PIDFILE_DIR: /run/kea
+          KEA_LOCKFILE_DIR: /run/kea
+        network_mode: host
+        user: root
+        volumes:
+          - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp4.json:/etc/kea/kea-dhcp4.json"

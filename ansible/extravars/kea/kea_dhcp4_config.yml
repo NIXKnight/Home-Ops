@@ -1,0 +1,32 @@
+---
+# Example of host reservations list
+# KEA_DHCP4_HOST_RESERVATIONS:
+#   - hostname: "example"
+#     hw-address: "00:00:00:00:00:00"
+#     ip-address: "192.168.1.1"
+KEA_DHCP4_CONFIG:
+  Dhcp4:
+    interfaces-config:
+      interfaces:
+        - "{{ FIREWALL_LAN_INTERFACE }}"
+    host-reservation-identifiers:
+      - circuit-id
+      - hw-address
+      - duid
+      - client-id
+    lease-database:
+      type: memfile
+      persist: false
+    subnet4:
+      - id: 1
+        subnet: "{{ KEA_SUBNET }}"
+        pools:
+          - pool: "{{ KEA_SUBNET_POOL }}"
+        option-data:
+          - name: routers
+            data: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
+          - name: domain-name-servers
+            data: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
+          - name: domain-search
+            data: "{{ ACME_DOMAIN_NAME }}"
+        reservations: "{{ KEA_DHCP4_HOST_RESERVATIONS }}"

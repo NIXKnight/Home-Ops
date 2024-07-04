@@ -104,3 +104,24 @@ PDNS_TOFU_ENV:
 #         type: "A"
 #         content: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
 #         ttl: "{{ PDNS_TOFU_DNS_DEFAULT_TTL }}"
+
+# DNS Zone config example when including Kea host reservations
+# PDNS_STATIC_RECORDS:
+#   - name: "ns1"
+#     type: "A"
+#     content: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
+#     ttl: "{{ PDNS_OPENTOFU_DNS_DEFAULT_TTL }}"
+# PDNS_KEA_HOST_RESERVATION_RECORDS: |
+#   {% for reservation in KEA_DHCP4_HOST_RESERVATIONS %}
+#   - name: "{{ reservation.hostname | lower }}"
+#     type: "A"
+#     content: "{{ reservation.ip-address }}"
+#     ttl: "{{ PDNS_TOFU_DNS_DEFAULT_TTL }}"
+#   {% endfor %}
+# PDNS_TOFU_MODULE_CONFIG:
+#   dns_zones:
+#   - name: "{{ ACME_DOMAIN_NAME }}"
+#     kind: "Native"
+#     nameservers:
+#       - "ns1.{{ ACME_DOMAIN_NAME }}"
+#     records: "{{ PDNS_STATIC_RECORDS + (PDNS_KEA_HOST_RESERVATION_RECORDS | from_yaml) }}"
