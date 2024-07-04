@@ -23,10 +23,11 @@ KEA_SERVICE_MANIFEST:
     services:
       dhcp-server:
         image: "{{ KEA_IMAGE }}"
-        command: ["/usr/sbin/kea-dhcp4", "-c", "/etc/kea/kea-dhcp4.json"]
+        command: [ "/usr/local/bin/kea.sh", "--dhcp4" ]
         environment:
           KEA_PIDFILE_DIR: /run/kea
           KEA_LOCKFILE_DIR: /run/kea
+          KEA_DHCP4_CONFIG_FILE: "/etc/kea/kea-dhcp4.json"
         network_mode: host
         user: root
         volumes:

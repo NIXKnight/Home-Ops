@@ -18,6 +18,8 @@ RUN set -eux; \
     curl -1sLf 'https://dl.cloudsmith.io/public/isc/kea-2-4/config.deb.txt?distro=debian&codename=bookworm' > /etc/apt/sources.list.d/isc-kea-2-4.list; \
     apt-get update; \
     apt-get -y install --no-install-recommends \
+        jq \
+        iproute2 \
         isc-kea-hooks \
         isc-kea-common \
         isc-kea-dhcp-ddns \
@@ -26,6 +28,8 @@ RUN set -eux; \
         isc-kea-dhcp6-server; \
     apt-get clean all; \
     rm -rf /var/lib/apt/*;
+
+COPY kea.sh /usr/local/bin/kea.sh
 
 ENV USER=_kea
 USER $USER
