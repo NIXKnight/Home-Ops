@@ -1,0 +1,43 @@
+---
+- name: Update Kea DHCP Configuration for Host Reservations
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/firewall.yml"
+  - "{{ playbook_dir }}/extravars/kea/kea.yml"
+  - "{{ playbook_dir }}/extravars/kea/kea_dhcp4_config.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  roles:
+    - role: docker_compose_service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ KEA_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ KEA_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ KEA_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ KEA_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ KEA_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ KEA_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ KEA_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ KEA_SERVICE_MANIFEST }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_FILES: "{{ KEA_COMPOSE_SERVICE_CONFIG_FILES }}"
+
+- name: Update Local DNS Zone via OpenTofu
+  connection: local
+  hosts: localhost
+  gather_facts: False
+  become: False
+  vars_files:
+  - "{{ playbook_dir }}/extravars/powerdns.yml"
+  - "{{ playbook_dir }}/extravars/common.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  roles:
+    - role: opentofu
+      OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
+      OPENTOFU_PROJECT_PATH: "{{ PDNS_TOFU_PROJECT_PATH }}"
+      OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ PDNS_TOFU_STATE_DB_SCHEMA_NAME }}"
+      OPENTOFU_MODULE_CONFIG: "{{ PDNS_TOFU_MODULE_CONFIG }}"
+      OEPNTOFU_ENV: "{{ PDNS_TOFU_ENV }}"
