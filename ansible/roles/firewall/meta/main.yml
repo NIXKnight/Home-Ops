@@ -1,7 +1,7 @@
 dependencies: []
 galaxy_info:
   author: Saad Ali
-  description: Setup iptables and tc.
+  description: Setup iptables.
   min_ansible_version: 8.1
   platforms:
   - name: Debian
@@ -9,3 +9,5 @@ galaxy_info:
       - bookworm
   galaxy_tags:
     - server
+    - iptables
+    - firewall
