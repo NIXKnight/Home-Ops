@@ -39,15 +39,28 @@ function check_network_interface_status {
   done
 }
 
-# Function to start Kea DHCP4 Server
-function start_kea_dhcp4 {
-  check_vars KEA_DHCP4_CONFIG_FILE
-  local KEA_INTERFACES=($(jq -r '.Dhcp4["interfaces-config"].interfaces[]' "$KEA_DHCP4_CONFIG_FILE"))
+# Function to start Kea DHCP Server
+function start_kea_dhcp {
+  local KEA_DHCP_IP_PROTO=$1
+
+  check_vars KEA_CONFIG_FILE
+
+  if [ "$KEA_DHCP_IP_PROTO" == "v4" ]; then
+    local KEA_INTERFACES=($(jq -r '.Dhcp4["interfaces-config"].interfaces[]' "$KEA_CONFIG_FILE"))
+    local KEA_EXEC_COMMAND="/usr/sbin/kea-dhcp4"
+  elif [ "$KEA_DHCP_IP_PROTO" == "v6" ]; then
+    local KEA_INTERFACES=($(jq -r '.Dhcp6["interfaces-config"].interfaces[]' "$KEA_CONFIG_FILE"))
+    local KEA_EXEC_COMMAND="/usr/sbin/kea-dhcp6"
+  else
+    echo "Invalid type: $KEA_DHCP_IP_PROTO"
+    return 1
+  fi
+
   check_network_interface_status "${KEA_INTERFACES[@]}"
-  exec /usr/sbin/kea-dhcp4 -c $KEA_DHCP4_CONFIG_FILE
+  exec $KEA_EXEC_COMMAND -c $KEA_CONFIG_FILE
 }
 
-OPTIONS=$(getopt -o '' --long dhcp4 -- "$@")
+OPTIONS=$(getopt -o '' --long dhcp4,dhcp6 -- "$@")
 
 eval set -- "$OPTIONS"
 
@@ -55,7 +68,11 @@ eval set -- "$OPTIONS"
 while true; do
   case "$1" in
     --dhcp4)
-      start_kea_dhcp4
+      start_kea_dhcp v4
+      exit 0
+      ;;
+    --dhcp6)
+      start_kea_dhcp v6
       exit 0
       ;;
     --)
