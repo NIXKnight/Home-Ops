@@ -114,3 +114,7 @@ set -x
 {% for RULES in FIREWALL_ADDITIONAL_RULES %}
 {{ RULES }}
 {% endfor %}
+
+# Save rules so that they get applied once the firewall restarts
+iptables-save > /etc/iptables/rules.v4
+ip6tables-save > /etc/iptables/rules.v6
