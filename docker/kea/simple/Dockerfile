@@ -19,6 +19,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get -y install --no-install-recommends \
         jq \
+        radvd \
         iproute2 \
         isc-kea-hooks \
         isc-kea-common \

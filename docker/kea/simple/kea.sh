@@ -20,7 +20,14 @@ function check_vars {
 # service(s) as they need the interface(s) to be up before binding to them.
 is_interface_up() {
     local INTERFACE=$1
-    ip link show "$INTERFACE" | grep -q "state UP"
+    case $SERVICE in
+      dhcp4)
+        ip -4 link show "$INTERFACE" | grep -q "state UP"
+        ;;
+      dhcp6|radvd)
+        ip -6 link show "$INTERFACE" | grep -q "state UP"
+        ;;
+    esac
 }
 
 function check_network_interface_status {
@@ -39,28 +46,43 @@ function check_network_interface_status {
   done
 }
 
-# Function to start Kea DHCP Server
-function start_kea_dhcp {
-  local KEA_DHCP_IP_PROTO=$1
+# Function to start service
+start_service() {
+  local EXEC_COMMAND
+  local INTERFACES=()
 
-  check_vars KEA_CONFIG_FILE
+  case "$SERVICE" in
+    dhcp4)
+      check_vars CONFIG_FILE
+      INTERFACES=($(jq -r '.Dhcp4["interfaces-config"].interfaces[]' "$CONFIG_FILE"))
+      EXEC_COMMAND="/usr/sbin/kea-dhcp4 -c $CONFIG_FILE"
+      ;;
+    dhcp6)
+      check_vars CONFIG_FILE
+      local INTERFACES_raw=($(jq -r '.Dhcp6["interfaces-config"].interfaces[]' "$CONFIG_FILE"))
+      for INTERFACE in "${INTERFACES_raw[@]}"; do
+        INTERFACES+=("${iface%%/*}")
+      done
+      EXEC_COMMAND="/usr/sbin/kea-dhcp6 -c $CONFIG_FILE"
+      ;;
+    radvd)
+      check_vars CONFIG_FILE
+      while IFS= read -r LINE; do
+        INTERFACE=$(echo "$LINE" | grep -oP '^interface\s+\K\S+')
+        INTERFACES+=("$INTERFACE")
+      done < <(grep '^interface' "$CONFIG_FILE")
+      EXEC_COMMAND="/usr/sbin/radvd --nodaemon -C $CONFIG_FILE"
+      ;;
+  esac
 
-  if [ "$KEA_DHCP_IP_PROTO" == "v4" ]; then
-    local KEA_INTERFACES=($(jq -r '.Dhcp4["interfaces-config"].interfaces[]' "$KEA_CONFIG_FILE"))
-    local KEA_EXEC_COMMAND="/usr/sbin/kea-dhcp4"
-  elif [ "$KEA_DHCP_IP_PROTO" == "v6" ]; then
-    local KEA_INTERFACES=($(jq -r '.Dhcp6["interfaces-config"].interfaces[]' "$KEA_CONFIG_FILE"))
-    local KEA_EXEC_COMMAND="/usr/sbin/kea-dhcp6"
-  else
-    echo "Invalid type: $KEA_DHCP_IP_PROTO"
-    return 1
+  if [[ "${#INTERFACES[@]}" -gt 0 ]]; then
+    check_network_interface_status "${INTERFACES[@]}"
   fi
 
-  check_network_interface_status "${KEA_INTERFACES[@]}"
-  exec $KEA_EXEC_COMMAND -c $KEA_CONFIG_FILE
+  exec $EXEC_COMMAND
 }
 
-OPTIONS=$(getopt -o '' --long dhcp4,dhcp6 -- "$@")
+OPTIONS=$(getopt -o '' --long dhcp4,dhcp6,radvd -- "$@")
 
 eval set -- "$OPTIONS"
 
@@ -68,11 +90,18 @@ eval set -- "$OPTIONS"
 while true; do
   case "$1" in
     --dhcp4)
-      start_kea_dhcp v4
+      SERVICE=${1#--}
+      start_service
       exit 0
       ;;
     --dhcp6)
-      start_kea_dhcp v6
+      SERVICE=${1#--}
+      start_service
+      exit 0
+      ;;
+    --radvd)
+      SERVICE=${1#--}
+      start_service
       exit 0
       ;;
     --)
