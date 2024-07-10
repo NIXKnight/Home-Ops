@@ -56,6 +56,7 @@ KEA_SERVICE_MANIFEST:
         user: root
         privileged: true
         volumes:
+          - "/var/lib/kea/leases:/var/lib/kea/leases"
           - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp6.json:/etc/kea/kea-dhcp6.json"
       radvd:
         image: "{{ KEA_IMAGE }}"
@@ -66,5 +67,4 @@ KEA_SERVICE_MANIFEST:
         user: root
         privileged: true
         volumes:
-          - "/var/lib/kea/leases:/var/lib/kea/leases"
           - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/radvd.conf:/etc/radvd.conf"
