@@ -29,6 +29,7 @@ LC_KERNEL_PARAMETERS:
   - { name: "fs.inotify.max_user_watches", value: 524288, state: present }
   - { name: "fs.inotify.max_user_instances", value: 524288, state: present }
   - { name: "net.ipv4.ip_forward", value: 1, state: present }
+  - { name: "net.ipv6.conf.all.forwarding", value: 1, state: present }
 LC_EXTRA_PACKAGES:
   - "gpg"
   - "apt-transport-https"
@@ -40,4 +41,4 @@ network_info: True
 
 # opentofu variables
 OPENTOFU_BIN_PATH: "{{ lookup('ansible.builtin.env', 'HOME') }}/.local/bin/tofu"
-OPENTOFU_STATE_DB_HOST: "{{ KEA_SUBNET | ansible.netcommon.ipmath(1) }}"
+OPENTOFU_STATE_DB_HOST: "{{ KEA_SUBNET4 | ansible.netcommon.ipmath(1) }}"

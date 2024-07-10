@@ -21,9 +21,6 @@ FIREWALL_FORWARDED_PORTS_PRIV2UNPRIV:
     PORT: "53"
     DEST_PORT: "5301"
 FIREWALL_ADDITIONAL_RULES:
-  # Allow DHCP traffic in a normal manner as privileged to unprivileged port forwarding
-  # in this case is complicated. Kea will run as root in the container in this case for now.
-  - iptables -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p udp --dport 67:68 --sport 67:68 -j ACCEPT
   # Allow the box itself to make DNS queries to PowerDNS Recursor on the custom port
   - iptables -t nat -A OUTPUT -p udp -o lo --dport 53 -j DNAT --to-destination 127.0.0.1:5301
   # Allow DNS requests made by the recursor and their response

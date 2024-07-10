@@ -4,79 +4,113 @@ set -x
 
 # {{ ansible_managed }}
 
-{% for iptables_version in [ 'iptables' ] %}
-{{iptables_version }} -F
-{{iptables_version }} -t nat -F
-{{iptables_version }} -X
-{{iptables_version }} -P INPUT DROP
-{{iptables_version }} -P FORWARD DROP
-{{iptables_version }} -P OUTPUT ACCEPT
+{% for iptables_version in ['iptables', 'ip6tables'] %}
+# Flush existing rules
+{{ iptables_version }} -F
+{{ iptables_version }} -t nat -F
+{{ iptables_version }} -t mangle -F
+{{ iptables_version }} -t raw -F
+{{ iptables_version }} -X
+{{ iptables_version }} -t nat -X
+{{ iptables_version }} -t mangle -X
+{{ iptables_version }} -t raw -X
+{{ iptables_version }} -Z
+
+# Set default policies
+{{ iptables_version }} -P INPUT DROP
+{{ iptables_version }} -P FORWARD DROP
+{{ iptables_version }} -P OUTPUT ACCEPT
 
 # Allow localhost
-{{iptables_version }} -A INPUT -i lo -j ACCEPT
-{{iptables_version }} -A OUTPUT -o lo -j ACCEPT
+{{ iptables_version }} -A INPUT -i lo -j ACCEPT
+{{ iptables_version }} -A OUTPUT -o lo -j ACCEPT
 
-{% if FIREWALL_LAN_MAC_RESTRICTION_ENABLED %}
-{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
-{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ MAC_ADDRESS }}" -j ACCEPT
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ MAC_ADDRESS }}" -j ACCEPT
-{% endfor %}
-{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
-{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source "{{ MAC_ADDRESS }}" -j LOG --log-prefix "Rejected MAC: "
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source "{{ MAC_ADDRESS }}" -j LOG --log-prefix "Rejected MAC: "
-{% endfor %}
-{% endif %}
+# Drop invalid packets
+{{ iptables_version }} -A INPUT -m conntrack --ctstate INVALID -j DROP
+{{ iptables_version }} -A FORWARD -m conntrack --ctstate INVALID -j DROP
+
+# Allow established and related connections
+{{ iptables_version }} -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+{{ iptables_version }} -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+
+# Allow incoming traffic from LAN to the firewall
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -j ACCEPT
 
 # WAN rules - Allow established connections
-{% for chain in [ 'INPUT', 'FORWARD' ] %}
-{{iptables_version }} -A {{ chain }} -i {{ FIREWALL_WAN_INTERFACE }} -m state --state ESTABLISHED,RELATED -j ACCEPT
+{% for chain in ['INPUT', 'FORWARD'] %}
+{{ iptables_version }} -A {{ chain }} -i {{ FIREWALL_WAN_INTERFACE }} -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 {% endfor %}
 
 {% if FIREWALL_SSH_ENABLED %}
-# Open SSH port
-#{{iptables_version }} -A INPUT -p tcp --dport {{ FIREWALL_SSH_PORT }} -j LOG --log-prefix "Incoming SSH: "
-{{iptables_version }} -A INPUT -p tcp --dport {{ FIREWALL_SSH_PORT }} -j ACCEPT
+{{ iptables_version }} -A INPUT -p tcp --dport {{ FIREWALL_SSH_PORT }} -j ACCEPT
 {% endif %}
 
 {% if FIREWALL_OPEN_PORTS_ENABLED %}
-{% for PORT_INFO in FIREWALL_OPEN_PORTS %}
 # Open ports
+{% for PORT_INFO in FIREWALL_OPEN_PORTS %}
 {% if FIREWALL_GLOBAL_LOG_PREFIX is defined and PORT_INFO.LOG_PREFIX is defined %}
-{{iptables_version }} -A INPUT -i {{ PORT_INFO.INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j LOG --log-prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }}-{{ PORT_INFO.LOG_PREFIX }}: "
+{{ iptables_version }} -A INPUT -i {{ PORT_INFO.INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j LOG --log-prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }}-{{ PORT_INFO.LOG_PREFIX }}: "
 {% endif %}
-{{iptables_version }} -A INPUT -i {{ PORT_INFO.INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j ACCEPT
+{{ iptables_version }} -A INPUT -i {{ PORT_INFO.INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j ACCEPT
 {% endfor %}
 {% endif %}
 
 {% for PORT_INFO in FIREWALL_FORWARDED_PORTS_PRIV2UNPRIV %}
-# Redirect traffic from privileged ports to non-priviledged ports on the local network
-{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS }} --dport {{ PORT_INFO.DEST_PORT }} -j ACCEPT
-{{iptables_version }} -t nat -A PREROUTING -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j DNAT --to {{ FIREWALL_LAN_INTERFACE_ADDRESS }}:{{ PORT_INFO.DEST_PORT }}
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS }} -j ACCEPT
+{% if iptables_version == 'iptables' %}
+# Redirect IPv4 traffic from privileged ports to non-privileged ports on the local network
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS }} --dport {{ PORT_INFO.DEST_PORT }} -j ACCEPT
+{{ iptables_version }} -t nat -A PREROUTING -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j DNAT --to {{ FIREWALL_LAN_INTERFACE_ADDRESS }}:{{ PORT_INFO.DEST_PORT }}
+{{ iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS }} -j ACCEPT
+{% endif %}
+{% if iptables_version == 'ip6tables' %}
+# Redirect IPv6 traffic from privileged ports to non-privileged ports on the local network
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }} --dport {{ PORT_INFO.DEST_PORT }} -j ACCEPT
+{{ iptables_version }} -t nat -A PREROUTING -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j DNAT --to {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }}:{{ PORT_INFO.DEST_PORT }}
+{{ iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }} -j ACCEPT
+{% endif %}
 {% endfor %}
 
 {% if FIREWALL_PORT_FORWARDING_ENABLED %}
-{% for PORT_INFO in FIREWALL_FORWARDED_PORTS %}
 # Port Forwarding rules
+{% for PORT_INFO in FIREWALL_FORWARDED_PORTS %}
 {% if PORT_INFO.LOG_PREFIX is defined %}
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_WAN_INTERFACE }} -o {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_HOST }} -j LOG --log-prefix "{{FIREWALL_GLOBAL_LOG_PREFIX}} Forwarded to {{ PORT_INFO.DEST_HOST }}: "
+{{ iptables_version }} -A FORWARD -i {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ PORT_INFO.DEST_HOST }} -j LOG --log-prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }} Forwarded to {{ PORT_INFO.DEST_HOST }}: "
 {% endif %}
-{{iptables_version }} -t nat -A PREROUTING -i {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j DNAT --to {{ PORT_INFO.DEST_HOST }}:{{ PORT_INFO.DEST_PORT }}
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ PORT_INFO.DEST_HOST }} -j ACCEPT
+{{ iptables_version }} -t nat -A PREROUTING -i {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.PORT }} -j DNAT --to {{ PORT_INFO.DEST_HOST }}:{{ PORT_INFO.DEST_PORT }}
+{{ iptables_version }} -A FORWARD -i {{ FIREWALL_WAN_INTERFACE }} -p {{ PORT_INFO.PROTOCOL }} --dport {{ PORT_INFO.DEST_PORT }} -d {{ PORT_INFO.DEST_HOST }} -j ACCEPT
 {% endfor %}
 {% endif %}
 
 # LAN rules - Allow all outgoing connections and their replies
-{{iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -o {{ FIREWALL_WAN_INTERFACE }} -j ACCEPT
+{{ iptables_version }} -A FORWARD -i {{ FIREWALL_LAN_INTERFACE }} -o {{ FIREWALL_WAN_INTERFACE }} -j ACCEPT
 
 # NAT for WAN interface to provide Internet for LAN
-{{iptables_version }} -t nat -A POSTROUTING -o {{ FIREWALL_WAN_INTERFACE }} -j MASQUERADE
+{{ iptables_version }} -t nat -A POSTROUTING -o {{ FIREWALL_WAN_INTERFACE }} -j MASQUERADE
+
+# Allow incoming ICMP
+{% if iptables_version == 'iptables' %}
+{{iptables_version }} -A INPUT -p icmp --icmp-type echo-request -j ACCEPT
+{{iptables_version }} -A INPUT -p icmp --icmp-type echo-reply -j ACCEPT
+{{iptables_version }} -A FORWARD -p icmp --icmp-type echo-request -j ACCEPT
+{{iptables_version }} -A FORWARD -p icmp --icmp-type echo-reply -j ACCEPT
+
+# Allow DHCP traffic
+{{iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p udp --dport 67:68 --sport 67:68 -j ACCEPT
+{% endif %}
+
+{% if iptables_version == 'ip6tables' %}
+# Allow and log all incoming ICMPv6
+{{ iptables_version }} -A INPUT -p ipv6-icmp -j ACCEPT
+{{ iptables_version }} -A FORWARD -p ipv6-icmp -j ACCEPT
+
+# Allow DHCPv6 traffic
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p udp --dport 546 -j ACCEPT
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -p udp --dport 547 -j ACCEPT
+{{ iptables_version }} -A OUTPUT -p udp --dport 546 -j ACCEPT
+{{ iptables_version }} -A OUTPUT -p udp --dport 547 -j ACCEPT
+{% endif %}
 {% endfor %}
 
 {% for RULES in FIREWALL_ADDITIONAL_RULES %}
 {{ RULES }}
 {% endfor %}
-
-# Save rules so that they get applied once the firewall restarts
-iptables-save > /etc/iptables/rules.v4
-# ip6tables-save > /etc/iptables/rules.v6
