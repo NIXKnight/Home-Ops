@@ -1,0 +1,30 @@
+---
+# Example of host reservations list
+# KEA_DHCP6_HOST_RESERVATIONS:
+#   - hostname: "example"
+#     hw-address: "00:00:00:00:00:00"
+#     ip-addresses: [ "{{ KEA_SUBNET6 | ansible.netcommon.ipmath(250) }}" ]
+KEA_DHCP6_CONFIG:
+  Dhcp6:
+    interfaces-config:
+      interfaces:
+        - "{{ FIREWALL_LAN_INTERFACE }}/{{ KEA_SUBNET6 | ansible.netcommon.ipmath(1) }}"
+    host-reservation-identifiers:
+      - hw-address
+    lease-database:
+      type: memfile
+      persist: true
+      name: /var/lib/kea/leases/dhcp6.leases
+    ip-reservations-unique: false
+    subnet6:
+      - id: 1
+        subnet: "{{ KEA_SUBNET6 }}"
+        interface: "{{ FIREWALL_LAN_INTERFACE }}"
+        pools:
+          - pool: "{{ KEA_SUBNET6_POOL }}"
+        option-data:
+          - name: dns-servers
+            data: "{{ KEA_SUBNET6 | ansible.netcommon.ipmath(1) }}"
+          - name: domain-search
+            data: "{{ ACME_DOMAIN_NAME }}"
+        reservations: "{{ KEA_DHCP6_HOST_RESERVATIONS }}"

@@ -1,6 +1,6 @@
 ---
 KEA_SERVICE_NAME: "fw-kea"
-KEA_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DHCP - Kea DHCP IPv4"
+KEA_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DHCP - Kea DHCP IPv4/IPv6"
 KEA_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service"
 KEA_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service"
 KEA_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ KEA_SERVICE_NAME }}.service"
@@ -17,18 +17,54 @@ KEA_COMPOSE_SERVICE_CONFIG_FILES:
     mode: 644
     owner: "root"
     group: "root"
+  - src: "{{ playbook_dir }}/templates/kea/dhcp6-config.json.j2"
+    dest: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp6.json"
+    mode: 644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/kea/radvd.conf.j2"
+    dest: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/radvd.conf"
+    mode: 644
+    owner: "root"
+    group: "root"
+KEA_COMPOSE_SERVICE_ADDITIONAL_PATHS:
+  - "/var/lib/kea/leases"
 KEA_SERVICE_MANIFEST:
   dest: "{{ KEA_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
     services:
-      dhcp-server:
+      dhcp4-server:
         image: "{{ KEA_IMAGE }}"
-        command: [ "/usr/local/bin/kea.sh", "--dhcp4" ]
+        command: [ "/usr/local/bin/init.sh", "--dhcp4" ]
         environment:
           KEA_PIDFILE_DIR: /run/kea
           KEA_LOCKFILE_DIR: /run/kea
-          KEA_DHCP4_CONFIG_FILE: "/etc/kea/kea-dhcp4.json"
+          CONFIG_FILE: "/etc/kea/kea-dhcp4.json"
         network_mode: host
         user: root
         volumes:
+          - "/var/lib/kea/leases:/var/lib/kea/leases"
           - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp4.json:/etc/kea/kea-dhcp4.json"
+      dhcp6-server:
+        image: "{{ KEA_IMAGE }}"
+        command: [ "/usr/local/bin/init.sh", "--dhcp6" ]
+        environment:
+          KEA_PIDFILE_DIR: /run/kea
+          KEA_LOCKFILE_DIR: /run/kea
+          CONFIG_FILE: "/etc/kea/kea-dhcp6.json"
+        network_mode: host
+        user: root
+        privileged: true
+        volumes:
+          - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp6.json:/etc/kea/kea-dhcp6.json"
+      radvd:
+        image: "{{ KEA_IMAGE }}"
+        command: [ "/usr/local/bin/init.sh", "--radvd" ]
+        environment:
+          CONFIG_FILE: "/etc/radvd.conf"
+        network_mode: host
+        user: root
+        privileged: true
+        volumes:
+          - "/var/lib/kea/leases:/var/lib/kea/leases"
+          - "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/radvd.conf:/etc/radvd.conf"

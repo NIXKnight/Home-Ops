@@ -7,6 +7,7 @@
   - "{{ playbook_dir }}/extravars/firewall.yml"
   - "{{ playbook_dir }}/extravars/kea/kea.yml"
   - "{{ playbook_dir }}/extravars/kea/kea_dhcp4_config.yml"
+  - "{{ playbook_dir }}/extravars/kea/kea_dhcp6_config.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
   roles:
@@ -21,3 +22,4 @@
       DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ KEA_SERVICE_MANIFEST }}"
       DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}"
       DOCKER_COMPOSE_SERVICE_CONFIG_FILES: "{{ KEA_COMPOSE_SERVICE_CONFIG_FILES }}"
+      DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS: "{{ KEA_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"

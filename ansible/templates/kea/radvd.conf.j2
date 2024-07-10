@@ -1,0 +1,10 @@
+interface {{ FIREWALL_LAN_INTERFACE }} {
+    AdvSendAdvert on;
+    AdvManagedFlag on;
+    AdvOtherConfigFlag on;
+    prefix {{ KEA_SUBNET6 }} {
+        AdvOnLink on;
+        AdvAutonomous on;
+        AdvRouterAddr on;
+    };
+};
