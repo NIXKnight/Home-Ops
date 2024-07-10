@@ -30,7 +30,7 @@ RUN set -eux; \
     apt-get clean all; \
     rm -rf /var/lib/apt/*;
 
-COPY kea.sh /usr/local/bin/kea.sh
+COPY init.sh /usr/local/bin/init.sh
 
 ENV USER=_kea
 USER $USER
