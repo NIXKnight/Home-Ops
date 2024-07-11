@@ -33,6 +33,23 @@ set -x
 {{ iptables_version }} -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 {{ iptables_version }} -A FORWARD -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
 
+{% if FIREWALL_LAN_MAC_RESTRICTION_ENABLED %}
+# MAC Address Filtering
+# Allow the firewall's own MAC address
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ FIREWALL_LAN_INTERFACE_MAC }}" -j ACCEPT
+
+# Allow whitelisted MAC addresses for both IPv4 and IPv6
+{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac --mac-source "{{ MAC_ADDRESS }}" -j ACCEPT
+{% endfor %}
+
+# Log and drop packets from non-whitelisted MAC addresses for both IPv4 and IPv6
+{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source {{ MAC_ADDRESS }} -j LOG --log-prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }}-Rejected MAC: "
+{{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -m mac ! --mac-source {{ MAC_ADDRESS }} -j DROP
+{% endfor %}
+{% endif %}
+
 # Allow incoming traffic from LAN to the firewall
 {{ iptables_version }} -A INPUT -i {{ FIREWALL_LAN_INTERFACE }} -j ACCEPT
 

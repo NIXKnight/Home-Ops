@@ -4,6 +4,7 @@ ansible/external-roles/*
 !ansible/external-roles/.gitkeep
 ansible/.ansible_vault_password
 *.retry
+*debug*
 .terraform
 .terraform.lock.hcl
 terraform.tfstate
