@@ -27,9 +27,21 @@
     executable: "/bin/bash"
   when: generate_iptables_shell_script.changed
 
+- name: Check if {{ FIREWALL_LOG_FILE }} Exists
+  ansible.builtin.stat:
+    path: "{{ FIREWALL_LOG_FILE }}"
+  register: iptables_log_file_check
+
+- name: Create {{ FIREWALL_LOG_FILE }}
+  ansible.builtin.file:
+    path: "{{ FIREWALL_LOG_FILE }}"
+    state: touch
+  register: log_file_created
+  when: not iptables_log_file_check.stat.exists
+
 - name: Configure rsyslog for IPTables
   template:
-    src: "templates//etc/rsyslog.d/iptables.conf.j2"
+    src: "templates/etc/rsyslog.d/iptables.conf.j2"
     dest: /etc/rsyslog.d/iptables.conf
     mode: 0644
   register: generate_rsyslog_iptables_config

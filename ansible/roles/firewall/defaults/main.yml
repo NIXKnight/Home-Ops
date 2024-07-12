@@ -16,6 +16,7 @@ FIREWALL_LAN_INTERFACE_MAC: "{{ hostvars[inventory_hostname]['ansible_' + FIREWA
 FIREWALL_LAN_INTERFACE_ADDRESS: "{{ hostvars[inventory_hostname]['ansible_' + FIREWALL_LAN_INTERFACE]['ipv4']['address'] }}"
 FIREWALL_LAN_INTERFACE_ADDRESS6: "{{ hostvars[inventory_hostname]['ansible_' + FIREWALL_LAN_INTERFACE]['ipv6'] | selectattr('scope', 'equalto', 'global') | map(attribute='address') | first }}"
 FIREWALL_LAN_BANDWIDTH: ""
+FIREWALL_LOG_FILE: "/var/log/iptables.log"
 FIREWALL_GLOBAL_LOG_PREFIX: "FW-IPT"
 FIREWALL_SSH_ENABLED: true
 FIREWALL_SSH_PORT: ""
