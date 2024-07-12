@@ -27,6 +27,12 @@
     executable: "/bin/bash"
   when: generate_iptables_shell_script.changed
 
+- name: Create/Update MAC Addresses Whitelist
+  template:
+    src: "templates/etc/mac_address_whitelist.json.j2"
+    dest: "{{ FIREWALL_LAN_MAC_WHITELIST_FILE }}"
+    mode: 0644
+
 - name: Check if {{ FIREWALL_LOG_FILE }} Exists
   ansible.builtin.stat:
     path: "{{ FIREWALL_LOG_FILE }}"
