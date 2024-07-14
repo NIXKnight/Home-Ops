@@ -29,7 +29,7 @@
 
 - name: Create/Update MAC Addresses Whitelist
   template:
-    src: "templates/etc/mac_address_whitelist.json.j2"
+    src: "templates/mac_address_whitelist.json.j2"
     dest: "{{ FIREWALL_LAN_MAC_WHITELIST_FILE }}"
     mode: 0644
 
