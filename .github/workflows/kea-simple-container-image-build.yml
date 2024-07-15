@@ -4,7 +4,7 @@ on:
     branches:
       - main
     paths:
-      - "docker/kea/simple/kea.sh"
+      - "docker/kea/simple/init.sh"
       - "docker/kea/simple/Dockerfile"
       - ".github/workflows/kea-simple-container-image-build.yml"
 jobs:

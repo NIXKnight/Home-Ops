@@ -36,10 +36,11 @@ function check_network_interface_status {
   while [ "$ALL_UP" = false ]; do
     ALL_UP=true
     for INTERFACE in $KEA_INTERFACES ; do
+      echo -e "checking interface $INTERFACE"
       if ! is_interface_up "$INTERFACE"; then
-        echo "Waiting for $INTERFACE to be up..."
+        echo "Waiting 30 seconds for $INTERFACE to be up..."
         ALL_UP=false
-        sleep 1
+        sleep 30
         break
       fi
     done
@@ -59,9 +60,9 @@ start_service() {
       ;;
     dhcp6)
       check_vars CONFIG_FILE
-      local INTERFACES_raw=($(jq -r '.Dhcp6["interfaces-config"].interfaces[]' "$CONFIG_FILE"))
-      for INTERFACE in "${INTERFACES_raw[@]}"; do
-        INTERFACES+=("${iface%%/*}")
+      local INTERFACES_RAW=($(jq -r '.Dhcp6["interfaces-config"].interfaces[]' "$CONFIG_FILE"))
+      for INTERFACE in "${INTERFACES_RAW[@]}"; do
+        INTERFACES+=("${INTERFACE%%/*}")
       done
       EXEC_COMMAND="/usr/sbin/kea-dhcp6 -c $CONFIG_FILE"
       ;;
