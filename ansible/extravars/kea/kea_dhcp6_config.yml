@@ -15,6 +15,11 @@ KEA_DHCP6_CONFIG:
       type: memfile
       persist: true
       name: /var/lib/kea/leases/dhcp6.leases
+    hooks-libraries:
+      - library: "/usr/lib/x86_64-linux-gnu/kea/hooks/libdhcp_run_script.so"
+        parameters:
+          name: "/usr/local/bin/dhcp_run_script.sh"
+          sync: false
     ip-reservations-unique: false
     subnet6:
       - id: 1

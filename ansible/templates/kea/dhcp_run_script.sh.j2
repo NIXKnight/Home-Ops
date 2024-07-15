@@ -1,0 +1,139 @@
+#!/bin/bash
+
+# {{ ansible_managed }}
+
+# The basic structure of this script is taken from the Kea's Hook Libraries documentation page:
+# https://kea.readthedocs.io/en/kea-2.4.1/arm/hooks.html#libdhcp-run-script-so-run-script-support-for-external-hook-scripts
+
+CALL_HOOK=$1
+FIREWALL_LAN_MAC_WHITELIST_FILE="{{ FIREWALL_LAN_MAC_WHITELIST_FILE }}"
+
+log() {
+  local LEVEL=$1
+  local MESSAGE=$2
+  local TIMESTAMP
+  local PROC_ID
+  TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S.%3N")
+  PROC_ID=$$
+
+  if [[ "$CALL_HOOK" =~ "leases4" ]]; then
+    SERVER="kea-dhcp4"
+  elif [[ "$CALL_HOOK" =~ "leases6" ]]; then
+    SERVER="kea-dhcp6"
+  fi
+
+  echo -e "$TIMESTAMP $LEVEL  [$SERVER.hooks/libdhcp_run_script.so/$CALL_HOOK] $MESSAGE"
+}
+
+is_mac_address_whitelisted() {
+  local MAC_ADDRESS=$1
+  local HOSTNAME=$2
+  if jq -e 'any(.[]; . == "'"$MAC_ADDRESS"'")' "$FIREWALL_LAN_MAC_WHITELIST_FILE" > /dev/null; then
+    return 0
+  else
+    log "WARN" "MAC address $MAC_ADDRESS of host $HOSTNAME is not found in the whitelist"
+    log "WARN" "Traffic for MAC address $MAC_ADDRESS of host $HOSTNAME will not go through"
+    return 1
+  fi
+}
+
+lease4_renew() {
+  exit 0
+}
+
+lease4_expire() {
+  exit 0
+}
+
+lease4_recover() {
+  exit 0
+}
+
+leases4_committed() {
+  is_mac_address_whitelisted "$LEASES4_AT0_HWADDR" "$LEASES4_AT0_HOSTNAME"
+}
+
+lease4_release() {
+  exit 0
+}
+
+lease4_decline() {
+  exit 0
+}
+
+lease6_renew() {
+}
+
+lease6_rebind() {
+  exit 0
+}
+
+lease6_expire() {
+  exit 0
+}
+
+lease6_recover() {
+  exit 0
+}
+
+leases6_committed() {
+  is_mac_address_whitelisted "$LEASES6_AT0_HWADDR" "$LEASES6_AT0_HOSTNAME"
+}
+
+lease6_release() {
+  exit 0
+}
+
+lease6_decline() {
+  exit 0
+}
+
+unknown_handle() {
+  echo "Unhandled function call ${*}"
+  exit 123
+}
+
+case "$1" in
+  "lease4_renew")
+    lease4_renew
+    ;;
+  "lease4_expire")
+    lease4_expire
+    ;;
+  "lease4_recover")
+    lease4_recover
+    ;;
+  "leases4_committed")
+    leases4_committed
+    ;;
+  "lease4_release")
+    lease4_release
+    ;;
+  "lease4_decline")
+    lease4_decline
+    ;;
+  "lease6_renew")
+    lease6_renew
+    ;;
+  "lease6_rebind")
+    lease6_rebind
+    ;;
+  "lease6_expire")
+    lease6_expire
+    ;;
+  "lease6_recover")
+    lease6_recover
+    ;;
+  "leases6_committed")
+    leases6_committed
+    ;;
+  "lease6_release")
+    lease6_release
+    ;;
+  "lease6_decline")
+    lease6_decline
+    ;;
+  *)
+    unknown_handle "${@}"
+    ;;
+esac
