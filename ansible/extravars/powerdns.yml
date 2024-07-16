@@ -1,8 +1,8 @@
 ---
 POWERDNS_SERVICE_NAME: "fw-powerdns"
 POWERDNS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DNS Services - PowerDNS Server and Recursor"
-POWERDNS_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service netfilter-persistent.service fw-data.service"
-POWERDNS_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target netfilter-persistent.service docker.service fw-data.service"
+POWERDNS_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service firewall.service fw-data.service"
+POWERDNS_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service fw-data.service"
 POWERDNS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ POWERDNS_SERVICE_NAME }}.service"
 POWERDNS_SERVICE_IMAGES:
   powerdns:

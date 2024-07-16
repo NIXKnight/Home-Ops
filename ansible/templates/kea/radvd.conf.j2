@@ -4,7 +4,8 @@ interface {{ FIREWALL_LAN_INTERFACE }} {
     AdvOtherConfigFlag on;
     prefix {{ KEA_SUBNET6 }} {
         AdvOnLink on;
-        AdvAutonomous on;
+        # Turn off IPv6 Stateless Address Auto-Configuration (SLAAC)
+        AdvAutonomous off;
         AdvRouterAddr on;
     };
 };

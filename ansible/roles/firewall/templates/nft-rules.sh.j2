@@ -1,0 +1,117 @@
+#!/bin/bash
+
+# {{ ansible_managed }}
+
+set -x
+
+# Flush existing rules and delete custom chains
+nft flush ruleset
+
+# Create tables for IPv4 and IPv6
+nft add table inet filter
+nft add table ip nat
+nft add table ip6 nat
+
+# Create chains
+nft add chain inet filter INPUT { type filter hook input priority 0 \; policy drop \; }
+nft add chain inet filter FORWARD { type filter hook forward priority 0 \; policy drop \; }
+nft add chain inet filter OUTPUT { type filter hook output priority 0 \; policy accept \; }
+nft add chain ip nat PREROUTING { type nat hook prerouting priority -100 \; }
+nft add chain ip nat POSTROUTING { type nat hook postrouting priority 100 \; }
+nft add chain ip nat OUTPUT { type nat hook output priority 0 \; }
+nft add chain ip6 nat PREROUTING { type nat hook prerouting priority -100 \; }
+nft add chain ip6 nat POSTROUTING { type nat hook postrouting priority 100 \; }
+nft add chain ip6 nat OUTPUT { type nat hook output priority 0 \; }
+nft add chain ip6 nat DNAT { type nat hook prerouting priority -100 \; }
+nft add chain ip6 nat SNAT { type nat hook postrouting priority 100 \; }
+nft add chain inet filter MAC_FILTER
+
+# Allow localhost
+nft add rule inet filter INPUT iif lo accept
+nft add rule inet filter OUTPUT oif lo accept
+
+# Drop invalid packets
+nft add rule inet filter INPUT ct state invalid drop
+nft add rule inet filter FORWARD ct state invalid drop
+
+# Allow established and related connections
+nft add rule inet filter INPUT ct state established,related accept
+nft add rule inet filter FORWARD ct state established,related accept
+
+{% if FIREWALL_LAN_MAC_RESTRICTION_ENABLED %}
+# MAC address filtering
+nft add rule inet filter MAC_FILTER ether saddr { {{ FIREWALL_LAN_INTERFACE_MAC }}{% for MAC_ADDRESS in FIREWALL_LAN_MAC_WHITELIST %}, {{ MAC_ADDRESS }}{% endfor %} } return
+nft add rule inet filter MAC_FILTER log prefix \"{{ FIREWALL_GLOBAL_LOG_PREFIX }} BLOCKED MAC: \" drop
+
+# Apply MAC filtering to incoming traffic on LAN interface
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} jump MAC_FILTER
+{% endif %}
+
+# WAN rules - Allow established connections
+{% for chain in ['INPUT', 'FORWARD'] %}
+nft add rule inet filter {{ chain }} iif {{ FIREWALL_WAN_INTERFACE }} ct state established,related accept
+{% endfor %}
+
+{% if FIREWALL_SSH_ENABLED %}
+nft add rule inet filter INPUT tcp dport {{ FIREWALL_SSH_PORT }} accept
+{% endif %}
+
+{% if FIREWALL_OPEN_PORTS_ENABLED %}
+# Open ports
+{% for PORT_INFO in FIREWALL_OPEN_PORTS %}
+{% if FIREWALL_GLOBAL_LOG_PREFIX is defined and PORT_INFO.LOG_PREFIX is defined %}
+nft add rule inet filter INPUT iif {{ PORT_INFO.INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} log prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }} {{ PORT_INFO.LOG_PREFIX }}: "
+{% endif %}
+nft add rule inet filter INPUT iif {{ PORT_INFO.INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} accept
+{% endfor %}
+{% endif %}
+
+{% for PORT_INFO in FIREWALL_FORWARDED_PORTS_PRIV2UNPRIV %}
+# Redirect IPv4 traffic from privileged ports to non-privileged ports on the local network
+nft add rule ip nat PREROUTING iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} dnat to {{ FIREWALL_LAN_INTERFACE_ADDRESS }}:{{ PORT_INFO.DEST_PORT }}
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip daddr {{ FIREWALL_LAN_INTERFACE_ADDRESS }} accept
+nft add rule inet filter FORWARD iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip daddr {{ FIREWALL_LAN_INTERFACE_ADDRESS }} accept
+
+# Redirect IPv6 traffic from privileged ports to non-privileged ports on the local network
+nft add rule ip6 nat PREROUTING iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} dnat to {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }}:{{ PORT_INFO.DEST_PORT }}
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip6 daddr {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }} accept
+nft add rule inet filter FORWARD iif {{ FIREWALL_LAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip6 daddr {{ FIREWALL_LAN_INTERFACE_ADDRESS6 }} accept
+{% endfor %}
+
+{% if FIREWALL_PORT_FORWARDING_ENABLED %}
+# Port Forwarding rules
+{% for PORT_INFO in FIREWALL_FORWARDED_PORTS %}
+{% if PORT_INFO.LOG_PREFIX is defined %}
+nft add rule inet filter FORWARD iif {{ FIREWALL_WAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip daddr {{ PORT_INFO.DEST_HOST }} log prefix "{{ FIREWALL_GLOBAL_LOG_PREFIX }} Forwarded to {{ PORT_INFO.DEST_HOST }}: "
+{% endif %}
+nft add rule ip nat PREROUTING iif {{ FIREWALL_WAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} dnat to {{ PORT_INFO.DEST_HOST }}:{{ PORT_INFO.DEST_PORT }}
+nft add rule ip6 nat PREROUTING iif {{ FIREWALL_WAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.PORT }} dnat to {{ PORT_INFO.DEST_HOST }}:{{ PORT_INFO.DEST_PORT }}
+nft add rule inet filter FORWARD iif {{ FIREWALL_WAN_INTERFACE }} {{ PORT_INFO.PROTOCOL }} dport {{ PORT_INFO.DEST_PORT }} ip daddr {{ PORT_INFO.DEST_HOST }} accept
+{% endfor %}
+{% endif %}
+
+# LAN rules - Allow all outgoing connections and their replies
+nft add rule inet filter FORWARD iif {{ FIREWALL_LAN_INTERFACE }} oif {{ FIREWALL_WAN_INTERFACE }} accept
+
+# NAT for WAN interface to provide Internet for LAN
+nft add rule ip nat POSTROUTING oif {{ FIREWALL_WAN_INTERFACE }} masquerade
+nft add rule ip6 nat POSTROUTING oif {{ FIREWALL_WAN_INTERFACE }} masquerade
+
+# Allow ICMPv4 echos
+nft add rule inet filter INPUT icmp type {echo-request, echo-reply} accept
+nft add rule inet filter FORWARD icmp type {echo-request, echo-reply} accept
+
+# Allow DHCPv4 traffic on LAN interface
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} udp sport 67-68 udp dport 67-68 accept
+
+# Allow DHCPv6 traffic on LAN interface
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} udp dport { 546, 547 } accept
+nft add rule inet filter INPUT iif {{ FIREWALL_LAN_INTERFACE }} icmpv6 type { echo-request, echo-reply, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert, mld-listener-query } accept
+
+# Allow link-local addresses for essential traffic on WAN interface
+nft add rule inet filter INPUT iif {{ FIREWALL_WAN_INTERFACE }} ip6 saddr fe80::/10 icmpv6 type { echo-request, echo-reply, nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit, nd-router-advert, mld-listener-query } accept
+
+{% for RULES in FIREWALL_ADDITIONAL_RULES %}
+{{ RULES }}
+{% endfor %}
+

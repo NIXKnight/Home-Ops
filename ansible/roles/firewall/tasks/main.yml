@@ -1,65 +1,83 @@
 ---
 # tasks file for firewall
-- name: Set DebConf for iptables-persistent
-  ansible.builtin.debconf:
-    name: iptables-persistent
-    question: "{{ item.question }}"
-    value: "{{ item.value }}"
-    vtype: "{{ item.vtype }}"
-  with_items: "{{ FIREWALL_DEBCONF_PACKAGE_QUESTIONS }}"
-
-- name: Install iptables-persistent
+- name: Install nftables
   ansible.builtin.apt:
-    name: "iptables-persistent"
+    name: "nftables"
     state: present
     update_cache: yes
 
-- name: Generate IPTables Rules Shell Script
-  template:
-    src: "templates/iptables-rules.sh.j2"
-    dest: "/usr/local/bin/generate-iptables-rules.sh"
+- name: Generate nftables Rules Shell Script
+  ansible.builtin.template:
+    src: "templates/nft-rules.sh.j2"
+    dest: "/usr/local/bin/firewall-rules"
     mode: 0755
-  register: generate_iptables_shell_script
+  register: generate_firewall_shell_script
 
-- name: Run IPTables Rules Shell Script
-  ansible.builtin.shell: "/usr/local/bin/generate-iptables-rules.sh"
-  args:
-    executable: "/bin/bash"
-  when: generate_iptables_shell_script.changed
+- name: Check if Traffic Control Service Exists
+  ansible.builtin.stat:
+    path: "/etc/systemd/system/firewall.service"
+  register: firewall_service_file
+
+- name: Setup Systemd Service for Firewall Rules
+  ansible.builtin.copy:
+    src: "files/etc/systemd/system/firewall.service"
+    dest: "/etc/systemd/system/firewall.service"
+    owner: root
+    group: root
+    mode: 0644
+  register: copy_firewall_service_file
 
 - name: Create/Update MAC Addresses Whitelist
-  template:
+  ansible.builtin.template:
     src: "templates/mac_address_whitelist.json.j2"
     dest: "{{ FIREWALL_LAN_MAC_WHITELIST_FILE }}"
     mode: 0644
+  when: FIREWALL_LAN_MAC_RESTRICTION_ENABLED
 
 - name: Check if {{ FIREWALL_LOG_FILE }} Exists
   ansible.builtin.stat:
     path: "{{ FIREWALL_LOG_FILE }}"
-  register: iptables_log_file_check
+  register: firewall_log_file_check
 
 - name: Create {{ FIREWALL_LOG_FILE }}
   ansible.builtin.file:
     path: "{{ FIREWALL_LOG_FILE }}"
     state: touch
   register: log_file_created
-  when: not iptables_log_file_check.stat.exists
+  when: not firewall_log_file_check.stat.exists
 
-- name: Configure rsyslog for IPTables
-  template:
-    src: "templates/etc/rsyslog.d/iptables.conf.j2"
-    dest: /etc/rsyslog.d/iptables.conf
+- name: Configure rsyslog for Firewall Logs
+  ansible.builtin.template:
+    src: "templates/etc/rsyslog.d/firewall.conf.j2"
+    dest: /etc/rsyslog.d/firewall.conf
     mode: 0644
-  register: generate_rsyslog_iptables_config
+  register: generate_rsyslog_firewall_config
+
+- name: Configure Log Rotation for Firewall Logs
+  ansible.builtin.copy:
+    src: "files/etc/logrotate.d/firewall"
+    dest: "/etc/logrotate.d/firewall"
+    owner: root
+    group: root
+    mode: 0644
 
 - name: Restart rsyslog
-  systemd:
+  ansible.builtin.systemd_service:
     name: "rsyslog"
     state: restarted
-  when: generate_rsyslog_iptables_config.changed
+  when: generate_rsyslog_firewall_config.changed
 
-- name: Restart netfilter-persistent
-  systemd:
-    name: "netfilter-persistent"
+- name: Start Firewall Service
+  ansible.builtin.systemd_service:
+    name: "firewall"
+    enabled: yes
+    daemon_reload: true
+    state: started
+  when: not firewall_service_file.stat.exists
+
+- name: Restart Firewall Service
+  ansible.builtin.systemd_service:
+    name: "firewall"
+    daemon_reload: true
     state: restarted
-  when: generate_iptables_shell_script.changed
+  when: (firewall_service_file.stat.exists and generate_firewall_shell_script.changed) or (firewall_service_file.stat.exists and copy_firewall_service_file.changed)

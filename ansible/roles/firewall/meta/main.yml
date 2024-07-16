@@ -1,13 +1,13 @@
 dependencies: []
 galaxy_info:
   author: Saad Ali
-  description: Setup iptables.
+  description: Setup nftables Firewall.
   min_ansible_version: 8.1
   platforms:
   - name: Debian
     versions:
       - bookworm
   galaxy_tags:
-    - server
-    - iptables
+    - network gateway
+    - nftables
     - firewall

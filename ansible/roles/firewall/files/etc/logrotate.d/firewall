@@ -1,0 +1,12 @@
+/var/log/firewall.log
+        {
+                rotate 7
+                daily
+                missingok
+                notifempty
+                delaycompress
+                compress
+                postrotate
+                        systemctl restart rsyslog > /dev/null
+                endscript
+        }

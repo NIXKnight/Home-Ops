@@ -1,12 +1,5 @@
 ---
 # defaults file for firewall
-FIREWALL_DEBCONF_PACKAGE_QUESTIONS:
-  - question: "iptables-persistent/autosave_v6"
-    value: "true"
-    vtype: "select"
-  - question: "iptables-persistent/autosave_v4"
-    value: "true"
-    vtype: "select"
 FIREWALL_WAN_INTERFACE: ""
 FIREWALL_WAN_INTERFACE_ADDRESS: "{{ hostvars[inventory_hostname]['ansible_' + FIREWALL_WAN_INTERFACE]['ipv4']['address'] }}"
 FIREWALL_WAN_INTERFACE_ADDRESS6: "{{ hostvars[inventory_hostname]['ansible_' + FIREWALL_WAN_INTERFACE]['ipv6'] | selectattr('scope', 'equalto', 'global') | map(attribute='address') | first }}"

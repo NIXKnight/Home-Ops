@@ -1,8 +1,8 @@
 ---
 KEA_SERVICE_NAME: "fw-kea"
 KEA_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DHCP - Kea DHCP IPv4/IPv6"
-KEA_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service"
-KEA_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service"
+KEA_SERVICE_SYSTEMD_REQUIRES: "network-online.target firewall.service docker.service"
+KEA_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service"
 KEA_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ KEA_SERVICE_NAME }}.service"
 KEA_SERVICE_IMAGES:
   kea:
