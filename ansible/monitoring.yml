@@ -1,0 +1,45 @@
+---
+- name: Setup/Update Monitoring
+  hosts: all
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/firewall.yml"
+  - "{{ playbook_dir }}/extravars/monitoring/monitoring.yml"
+  - "{{ playbook_dir }}/extravars/monitoring/prometheus_config.yml"
+  - "{{ playbook_dir }}/extravars/monitoring/telegraf_config.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
+  roles:
+    - role: docker_compose_service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ MONITORING_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ MONITORING_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ MONITORING_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ MONITORING_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ MONITORING_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ MONITORING_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ MONITORING_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ MONITORING_SERVICE_MANIFEST }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_FILES: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_FILES }}"
+      DOCKER_COMPOSE_SERVICE_SET_GROUP_ID: true
+
+- name: Add/Update Grafana Configuration via OpenTofu
+  connection: local
+  hosts: localhost
+  gather_facts: False
+  become: False
+  vars_files:
+  - "{{ playbook_dir }}/extravars/monitoring/grafana_config.yml"
+  - "{{ playbook_dir }}/extravars/common.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
+  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  roles:
+    - role: opentofu
+      OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG_FILE_DEST }}"
+      OPENTOFU_PROJECT_PATH: "{{ MONITORING_GRAFANA_TOFU_PROJECT_PATH }}"
+      OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ MONITORING_GRAFANA_TOFU_STATE_DB_SCHEMA_NAME }}"
+      OPENTOFU_MODULE_CONFIG: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG }}"
+      OEPNTOFU_ENV: "{{ MONITORING_GRAFANA_TOFU_ENV }}"

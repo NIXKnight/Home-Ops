@@ -1,0 +1,95 @@
+---
+MONITORING_SERVICE_NAME: "fw-monitoring"
+MONITORING_SERVICE_SYSTEMD_DESCRIPTION: "Monitoring Services - Prometheus, Node Exporter, Telegraf and Grafana"
+MONITORING_SERVICE_SYSTEMD_REQUIRES: "network-online.target firewall.service docker.service"
+MONITORING_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service"
+MONITORING_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ MONITORING_SERVICE_NAME }}.service"
+MONITORING_SERVICE_IMAGES:
+  prometheus:
+    name: "prom/prometheus"
+    tag: "v2.53.1"
+  prometheus_node_exporter:
+    name: "prom/node-exporter"
+    tag: "v1.8.2"
+  telegraf:
+    name: "nixknight/telegraf"
+    tag: "1.31.1"
+  grafana:
+    name: "grafana/grafana"
+    tag: "10.2.8"
+MONITORING_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/monitoring"
+MONITORING_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/monitoring"
+MONITORING_COMPOSE_SERVICE_CONFIG_FILES:
+  - src: "{{ playbook_dir }}/templates/monitoring/prometheus.yml.j2"
+    dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/prometheus.yml"
+    mode: 644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/monitoring/telegraf.conf.j2"
+    dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/telegraf.conf"
+    mode: 644
+    owner: "root"
+    group: "root"
+MONITORING_SERVICE_MANIFEST:
+  dest: "{{ MONITORING_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    services:
+      prometheus:
+        image: "{{ MONITORING_SERVICE_IMAGES.prometheus.name }}:{{ MONITORING_SERVICE_IMAGES.prometheus.tag }}"
+        network_mode: host
+        volumes:
+          - "prometheus_data:/prometheus"
+          - "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/prometheus.yml:/etc/prometheus/prometheus.yml"
+      prometheus-node-exporter:
+        image: "{{ MONITORING_SERVICE_IMAGES.prometheus_node_exporter.name }}:{{ MONITORING_SERVICE_IMAGES.prometheus_node_exporter.tag }}"
+        command: [ "--path.rootfs=/host", "--collector.filesystem.ignored-mount-points=^/(dev|proc|sys|var/lib/docker/.+)($|/)", "--collector.netclass.ignored-devices=^(docker.*)$" ]
+        network_mode: host
+        privileged: true
+        volumes:
+          - "/etc/localtime:/etc/localtime:ro"
+          - '/:/host:ro,rslave'
+        depends_on:
+          - prometheus
+      telegraf:
+        image: "{{ MONITORING_SERVICE_IMAGES.telegraf.name }}:{{ MONITORING_SERVICE_IMAGES.telegraf.tag }}"
+        network_mode: host
+        volumes:
+          - "/etc/localtime:/etc/localtime:ro"
+          - "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/telegraf.conf:/etc/telegraf/telegraf.conf"
+        depends_on:
+          - prometheus
+      grafana:
+        image: "{{ MONITORING_SERVICE_IMAGES.grafana.name }}:{{ MONITORING_SERVICE_IMAGES.grafana.tag }}"
+        environment:
+          GF_SERVER_ROOT_URL: "https://grafana.{{ ACME_DOMAIN_NAME }}"
+          GF_SECURITY_ADMIN_USER: "{{ MONITORING_GRAFANA_ADMIN_USER }}"
+          GF_SECURITY_ADMIN_PASSWORD: "{{ MONITORING_GRAFANA_ADMIN_PASSWORD }}"
+          GF_SERVER_ROUTER_LOGGING: false
+          GF_SERVER_ENABLE_GZIP: true
+          GF_SMTP_ENABLED: True
+          GF_SMTP_FROM_ADDRESS: "{{ MONITORING_GRAFANA_SMTP_FROM_ADDRESS }}"
+          GF_SMTP_FROM_NAME: "{{ MONITORING_GRAFANA_SMTP_FROM_NAME }}"
+          GF_SMTP_HOST: "{{ MONITORING_GRAFANA_SMTP_HOST }}"
+          GF_SMTP_USER: "{{ MONITORING_GRAFANA_SMTP_USER }}"
+          GF_SMTP_PASSWORD: "{{ MONITORING_GRAFANA_SMTP_PASSWORD }}"
+          GF_AUTH_GENERIC_OAUTH_ENABLED: "true"
+          GF_AUTH_GENERIC_OAUTH_NAME: "authentik"
+          GF_AUTH_GENERIC_OAUTH_CLIENT_ID: "{{ MONITORING_GRAFANA_AUTHENTIK_CLIENT_ID }}"
+          GF_AUTH_GENERIC_OAUTH_CLIENT_SECRET: "{{ MONITORING_GRAFANA_AUTHENTIK_CLIENT_SECRET }}"
+          GF_AUTH_GENERIC_OAUTH_SCOPES: "openid profile email"
+          GF_AUTH_GENERIC_OAUTH_AUTH_URL: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/authorize/"
+          GF_AUTH_GENERIC_OAUTH_TOKEN_URL: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/token/"
+          GF_AUTH_GENERIC_OAUTH_API_URL: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/userinfo/"
+          GF_AUTH_SIGNOUT_REDIRECT_URL: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/grafana/end-session/"
+          GF_AUTH_GENERIC_OAUTH_ROLE_ATTRIBUTE_PATH: "contains(groups, 'FirewallAdmin') && 'Admin'"
+        network_mode: host
+        volumes:
+          - "/etc/localtime:/etc/localtime:ro"
+          - "grafana_data:/var/lib/grafana"
+        depends_on:
+          - prometheus
+    volumes:
+      prometheus_data:
+        driver: local
+      grafana_data:
+        driver: local

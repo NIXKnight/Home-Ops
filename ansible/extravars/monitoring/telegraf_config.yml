@@ -1,0 +1,20 @@
+---
+# Example of Telegraf ping hosts
+# MONITORING_TELEGRAF_PING_HOSTS:
+#   - name: "google-ipv4"
+#     addr: "8.8.8.8"
+#   - name: "google-ipv6"
+#     addr: "2001:4860:4860::8888"
+MONITORING_TELEGRAF_CONFIG: |
+  [agent]
+    round_interval = true
+  [[inputs.ping]]
+    interval = "15s"
+    urls = {{ MONITORING_TELEGRAF_PING_HOSTS | map(attribute='addr') | list }}
+    count = 10
+    method = "exec"
+    interface = "{{ FIREWALL_WAN_INTERFACE }}"
+    percentiles = [ 50, 95, 99 ]
+  [[outputs.prometheus_client]]
+    listen = ":9273"
+    collectors_exclude = [ "gocollector", "process", "internal" ]

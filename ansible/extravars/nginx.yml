@@ -37,6 +37,11 @@ NGINX_COMPOSE_SERVICE_CONFIG_FILES:
     mode: 0644
     owner: "root"
     group: "root"
+  - src: "{{ playbook_dir }}/templates/nginx/monitoring.conf.j2"
+    dest: "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/monitoring.conf"
+    mode: 0644
+    owner: "root"
+    group: "root"
 NGINX_SERVICE_MANIFEST:
   dest: "{{ NGINX_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
@@ -45,9 +50,11 @@ NGINX_SERVICE_MANIFEST:
         image: "{{ NGINX_IMAGE }}"
         network_mode: host
         volumes:
+          - "/etc/localtime:/etc/localtime:ro"
           - "{{ ACME_CERT_DIR }}:{{ ACME_CERT_DIR }}"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/nginx_top_level.conf:/etc/nginx/conf.d/01_nginx_top_level.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/authentik.conf:/etc/nginx/conf.d/02_authentik.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pdns.conf:/etc/nginx/conf.d/03_pdns.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pgadmin.conf:/etc/nginx/conf.d/04_pgadmin.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/jenkins.conf:/etc/nginx/conf.d/05_jenkins.conf"
+          - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/monitoring.conf:/etc/nginx/conf.d/06_monitoring.conf"
