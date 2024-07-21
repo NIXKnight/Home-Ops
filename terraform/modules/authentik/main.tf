@@ -37,6 +37,13 @@ resource "authentik_user" "users" {
   email    = each.value.email
   name     = each.value.name
   password = each.value.password
+  type     = lookup(each.value, "type", "internal")
+
+  lifecycle {
+    ignore_changes = [
+      password
+    ]
+  }
 }
 
 resource "authentik_group" "groups" {
