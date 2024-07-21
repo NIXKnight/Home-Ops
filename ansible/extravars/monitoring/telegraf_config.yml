@@ -9,7 +9,7 @@ MONITORING_TELEGRAF_CONFIG: |
   [agent]
     round_interval = true
   [[inputs.ping]]
-    interval = "15s"
+    interval = "11s"
     urls = {{ MONITORING_TELEGRAF_PING_HOSTS | map(attribute='addr') | list }}
     count = 10
     method = "exec"
