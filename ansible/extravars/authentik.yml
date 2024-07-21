@@ -1,8 +1,8 @@
 ---
 AUTHENTIK_SERVICE_NAME: "fw-authentik"
 AUTHENTIK_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Authentication Service - Authentik"
-AUTHENTIK_SERVICE_SYSTEMD_REQUIRES: "network-online.target firewall.service docker.service fw-powerdns.service fw-data.service"
-AUTHENTIK_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service fw-powerdns.service fw-data.service"
+AUTHENTIK_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service fw-powerdns.service fw-data.service"
+AUTHENTIK_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service fw-powerdns.service fw-data.service"
 AUTHENTIK_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ AUTHENTIK_SERVICE_NAME }}.service"
 AUTHENTIK_SERVICE_IMAGES:
   authentik:

@@ -1,8 +1,8 @@
 ---
 MONITORING_SERVICE_NAME: "fw-monitoring"
 MONITORING_SERVICE_SYSTEMD_DESCRIPTION: "Monitoring Services - Prometheus, Node Exporter, Telegraf and Grafana"
-MONITORING_SERVICE_SYSTEMD_REQUIRES: "network-online.target firewall.service docker.service"
-MONITORING_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service"
+MONITORING_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service"
+MONITORING_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service"
 MONITORING_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ MONITORING_SERVICE_NAME }}.service"
 MONITORING_SERVICE_IMAGES:
   prometheus:

@@ -1,8 +1,8 @@
 ---
 JENKINS_SERVICE_NAME: "fw-jenkins"
 JENKINS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Automation - Jenkins"
-JENKINS_SERVICE_SYSTEMD_REQUIRES: "network-online.target firewall.service docker.service fw-authentik.service fw-powerdns.service"
-JENKINS_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target firewall.service docker.service fw-authentik.service fw-powerdns.service"
+JENKINS_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service fw-authentik.service fw-powerdns.service"
+JENKINS_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service fw-authentik.service fw-powerdns.service"
 JENKINS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAME }}.service"
 JENKINS_SERVICE_IMAGES:
   server:
