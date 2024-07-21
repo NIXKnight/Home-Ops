@@ -14,6 +14,7 @@
     state: present
     force_init: true
     init_reconfigure: true
+    provider_upgrade: true
   environment: "{{ OEPNTOFU_ENV }}"
 
 - name: Remove OpenTofu Config and Backend Files
