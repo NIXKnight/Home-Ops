@@ -7,7 +7,7 @@ AUTHENTIK_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ AUTHENTIK_SERVICE_NAME }
 AUTHENTIK_SERVICE_IMAGES:
   authentik:
     name: "ghcr.io/goauthentik/server"
-    tag: "2024.4.2"
+    tag: "2024.6.1"
 AUTHENTIK_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/authentik"
 AUTHENTIK_IMAGE: "{{ AUTHENTIK_SERVICE_IMAGES.authentik.name }}:{{ AUTHENTIK_SERVICE_IMAGES.authentik.tag }}"
 AUTHENTIK_POSTGRESQL_USERNAME: "authentik"
