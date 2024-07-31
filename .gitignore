@@ -2,6 +2,8 @@ ansible/collections/*
 !ansible/collections/.gitkeep
 ansible/external-roles/*
 !ansible/external-roles/.gitkeep
+terraform/modules/*
+!terraform/modules/.gitkeep
 ansible/.ansible_vault_password
 *.retry
 *debug*
