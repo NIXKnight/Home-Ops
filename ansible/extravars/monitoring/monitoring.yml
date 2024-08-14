@@ -13,7 +13,7 @@ MONITORING_SERVICE_IMAGES:
     tag: "v1.8.2"
   telegraf:
     name: "nixknight/telegraf"
-    tag: "1.31.1"
+    tag: "1.31.3"
   grafana:
     name: "grafana/grafana"
     tag: "10.2.8"
@@ -28,6 +28,11 @@ MONITORING_COMPOSE_SERVICE_CONFIG_FILES:
   - src: "{{ playbook_dir }}/templates/monitoring/telegraf.conf.j2"
     dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/telegraf.conf"
     mode: 644
+    owner: "root"
+    group: "root"
+  - src: "{{ playbook_dir }}/templates/monitoring/get-deye-data.sh.j2"
+    dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/get-deye-data.sh"
+    mode: 755
     owner: "root"
     group: "root"
 MONITORING_SERVICE_MANIFEST:
@@ -56,6 +61,7 @@ MONITORING_SERVICE_MANIFEST:
         volumes:
           - "/etc/localtime:/etc/localtime:ro"
           - "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/telegraf.conf:/etc/telegraf/telegraf.conf"
+          - "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/get-deye-data.sh:/usr/local/bin/get-deye-data.sh"
         depends_on:
           - prometheus
       grafana:

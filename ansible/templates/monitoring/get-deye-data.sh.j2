@@ -1,0 +1,50 @@
+#!/bin/bash
+
+# {{ ansible_managed }}
+
+# This script assumes that you have installed deye-controller (https://github.com/githubDante/deye-controller) Python library and tools
+# and that deye-read is available in PATH
+
+DEYE_INVERTER_ADDRESS=$1
+DEYE_INVERTER_SN=$2
+
+DEYE_JSON_OUTPUT=$(deye-read --json $DEYE_INVERTER_ADDRESS $DEYE_INVERTER_SN)
+
+# Define a simple array with the metric keys we need
+DEYE_JSON_METRICS=(
+  "batt_equalization_v"
+  "batt_absorbtion_v"
+  "batt_float_v"
+  "batt_capacity"
+  "battery_corrected_ah"
+  "batt_empty_v"
+  "battery_resistance"
+  "battery_charging_eff"
+  "battery_shutdown_capacity"
+  "battery_low_capacity"
+  "battery_temperature"
+  "battery_voltage"
+  "battery_soc"
+  "load_total_power"
+  "gen_total_power"
+  "today_from_generator"
+  "total_from_generator"
+  "today_bought_from_grid"
+  "total_bought_from_grid"
+  "grid_phase_A_volt"
+  "grid_phase_B_volt"
+  "grid_phase_C_volt"
+  "grid_total_power"
+  "pv1_in_power"
+  "pv2_in_power"
+  "today_from_pv"
+  "total_from_pv"
+  "dc_transformer_temp"
+  "heatsink_temp"
+)
+
+# Loop through the metric keys and extract their values using jq
+for KEY in "${DEYE_JSON_METRICS[@]}"; do
+  VALUE=$(echo "$DEYE_JSON_OUTPUT" | jq -r ".data[] | select(.[\"$KEY\"]).$KEY.value")
+  echo "deye_inverter,host=$(hostname) deye_inverter_${KEY}=${VALUE}"
+done
