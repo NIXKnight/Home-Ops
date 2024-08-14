@@ -24,22 +24,22 @@
       DOCKER_COMPOSE_SERVICE_CONFIG_FILES: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_FILES }}"
       DOCKER_COMPOSE_SERVICE_SET_GROUP_ID: true
 
-- name: Add/Update Grafana Configuration via OpenTofu
-  connection: local
-  hosts: localhost
-  gather_facts: False
-  become: False
-  vars_files:
-  - "{{ playbook_dir }}/extravars/monitoring/grafana_config.yml"
-  - "{{ playbook_dir }}/extravars/common.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
-  roles:
-    - role: opentofu
-      OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG_FILE_DEST }}"
-      OPENTOFU_PROJECT_PATH: "{{ MONITORING_GRAFANA_TOFU_PROJECT_PATH }}"
-      OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ MONITORING_GRAFANA_TOFU_STATE_DB_SCHEMA_NAME }}"
-      OPENTOFU_MODULE_CONFIG: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG }}"
-      OEPNTOFU_ENV: "{{ MONITORING_GRAFANA_TOFU_ENV }}"
+# - name: Add/Update Grafana Configuration via OpenTofu
+#   connection: local
+#   hosts: localhost
+#   gather_facts: False
+#   become: False
+#   vars_files:
+#   - "{{ playbook_dir }}/extravars/monitoring/grafana_config.yml"
+#   - "{{ playbook_dir }}/extravars/common.yml"
+#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
+#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
+#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+#   roles:
+#     - role: opentofu
+#       OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG_FILE_DEST }}"
+#       OPENTOFU_PROJECT_PATH: "{{ MONITORING_GRAFANA_TOFU_PROJECT_PATH }}"
+#       OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ MONITORING_GRAFANA_TOFU_STATE_DB_SCHEMA_NAME }}"
+#       OPENTOFU_MODULE_CONFIG: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG }}"
+#       OEPNTOFU_ENV: "{{ MONITORING_GRAFANA_TOFU_ENV }}"
