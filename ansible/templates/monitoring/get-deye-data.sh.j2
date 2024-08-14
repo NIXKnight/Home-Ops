@@ -46,5 +46,5 @@ DEYE_JSON_METRICS=(
 # Loop through the metric keys and extract their values using jq
 for KEY in "${DEYE_JSON_METRICS[@]}"; do
   VALUE=$(echo "$DEYE_JSON_OUTPUT" | jq -r ".data[] | select(.[\"$KEY\"]).$KEY.value")
-  echo "deye_inverter,host=$(hostname) deye_inverter_${KEY}=${VALUE}"
+  echo "deye_inverter,host=$(hostname) ${KEY}=${VALUE}"
 done
