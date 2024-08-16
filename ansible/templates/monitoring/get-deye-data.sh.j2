@@ -8,7 +8,30 @@
 DEYE_INVERTER_ADDRESS=$1
 DEYE_INVERTER_SN=$2
 
-DEYE_JSON_OUTPUT=$(deye-read --json $DEYE_INVERTER_ADDRESS $DEYE_INVERTER_SN)
+# Function to run deye-read with a timeout and JSON validation
+run_deye_read() {
+  local OUTPUT
+  OUTPUT=$(timeout 15s deye-read --json $DEYE_INVERTER_ADDRESS $DEYE_INVERTER_SN 2>/dev/null)
+
+  # Check if the output is valid JSON
+  if echo "$OUTPUT" | jq empty > /dev/null 2>&1; then
+    echo "$OUTPUT"
+  else
+    return 1
+  fi
+}
+
+# Try running the command, with one retry if it fails
+DEYE_JSON_OUTPUT=$(run_deye_read)
+if [[ $? -ne 0 ]]; then
+  DEYE_JSON_OUTPUT=$(run_deye_read)
+fi
+
+# If the command still fails, exit with an error
+if [[ $? -ne 0 ]]; then
+  echo "Failed to retrieve valid JSON data from deye-read after retries." >&2
+  exit 1
+fi
 
 # Define a simple array with the metric keys we need
 DEYE_JSON_METRICS=(
@@ -25,16 +48,55 @@ DEYE_JSON_METRICS=(
   "battery_temperature"
   "battery_voltage"
   "battery_soc"
+  "battery_discharge_total"
+  "battery_charge_total"
+  "battery_discharge_today"
+  "battery_charge_today"
+  "battery_out_current"
+  "battery_out_power"
+  "load_phase_A_power"
+  "load_phase_B_power"
+  "load_phase_C_power"
   "load_total_power"
   "gen_total_power"
+  "gen_phase_A_power"
+  "gen_phase_B_power"
+  "gen_phase_C_power"
+  "ups_phase_A_power"
+  "ups_phase_B_power"
+  "ups_phase_C_power"
+  "ups_total_power"
   "today_from_generator"
   "total_from_generator"
   "today_bought_from_grid"
   "total_bought_from_grid"
+  "today_to_load"
+  "total_to_load"
+  "total_sold_to_grid"
+  "today_bought_from_grid"
+  "today_sold_to_grid"
   "grid_phase_A_volt"
   "grid_phase_B_volt"
   "grid_phase_C_volt"
+  "grid_phase_AB_volt"
+  "grid_phase_BC_volt"
+  "grid_phase_CA_volt"
+  "grid_phase_A_in_power"
+  "grid_phase_B_in_power"
+  "grid_phase_C_in_power"
+  "grid_in_frequency"
+  "grid_phase_A_in_current"
+  "grid_phase_B_in_current"
+  "grid_phase_C_in_current"
+  "grid_phase_A__power"
+  "grid_phase_B__power"
+  "grid_phase_C__power"
   "grid_total_power"
+  "inverter_out_frequency"
+  "pv1_volt"
+  "pv2_volt"
+  "pv1_current"
+  "pv2_current"
   "pv1_in_power"
   "pv2_in_power"
   "today_from_pv"
@@ -46,5 +108,7 @@ DEYE_JSON_METRICS=(
 # Loop through the metric keys and extract their values using jq
 for KEY in "${DEYE_JSON_METRICS[@]}"; do
   VALUE=$(echo "$DEYE_JSON_OUTPUT" | jq -r ".data[] | select(.[\"$KEY\"]).$KEY.value")
-  echo "deye_inverter,host=$(hostname) ${KEY}=${VALUE}"
+  if [[ -n "$VALUE" ]] && [[ "$VALUE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "deye_inverter,host=$(hostname) ${KEY}=${VALUE}"
+  fi
 done
