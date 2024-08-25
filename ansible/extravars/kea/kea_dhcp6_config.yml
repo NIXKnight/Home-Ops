@@ -20,7 +20,6 @@ KEA_DHCP6_CONFIG:
         parameters:
           name: "/usr/local/bin/dhcp_run_script.sh"
           sync: false
-    ip-reservations-unique: false
     subnet6:
       - id: 1
         subnet: "{{ KEA_SUBNET6 }}"
