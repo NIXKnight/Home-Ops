@@ -8,6 +8,7 @@
   - "{{ playbook_dir }}/extravars/monitoring/monitoring.yml"
   - "{{ playbook_dir }}/extravars/monitoring/prometheus_config.yml"
   - "{{ playbook_dir }}/extravars/monitoring/telegraf_config.yml"
+  - "{{ playbook_dir }}/extravars/powerdns.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
   - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
   roles:

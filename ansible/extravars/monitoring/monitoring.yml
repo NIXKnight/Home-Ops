@@ -13,7 +13,7 @@ MONITORING_SERVICE_IMAGES:
     tag: "v1.8.2"
   telegraf:
     name: "nixknight/telegraf"
-    tag: "1.31.3"
+    tag: "1.31.3-bad9bb2"
   grafana:
     name: "grafana/grafana"
     tag: "10.2.8"
@@ -41,6 +41,7 @@ MONITORING_SERVICE_MANIFEST:
     services:
       prometheus:
         image: "{{ MONITORING_SERVICE_IMAGES.prometheus.name }}:{{ MONITORING_SERVICE_IMAGES.prometheus.tag }}"
+        command: [ "--config.file=/etc/prometheus/prometheus.yml", "--web.enable-admin-api" ]
         network_mode: host
         volumes:
           - "prometheus_data:/prometheus"
