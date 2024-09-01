@@ -16,9 +16,9 @@ MONITORING_TELEGRAF_CONFIG: |
     interface = "{{ FIREWALL_WAN_INTERFACE }}"
     percentiles = [ 50, 95, 99 ]
   [[inputs.exec]]
-    interval = "30s"
+    interval = "15s"
+    timeout = "14s"
     commands = ["/usr/local/bin/get-deye-data.sh {{ MONITORING_TELEGRAF_INVERTER_ADDRESS }} {{ MONITORING_TELEGRAF_INVERTER_SN }}"]
-    timeout = "25s"
     data_format = "influx"
     name_override = "deye_inverter"
   [[outputs.prometheus_client]]

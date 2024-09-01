@@ -11,7 +11,7 @@ DEYE_INVERTER_SN=$2
 # Function to run deye-read with a timeout and JSON validation
 run_deye_read() {
   local OUTPUT
-  OUTPUT=$(timeout 15s deye-read --json $DEYE_INVERTER_ADDRESS $DEYE_INVERTER_SN 2>/dev/null)
+  OUTPUT=$(timeout 7s deye-read --json $DEYE_INVERTER_ADDRESS $DEYE_INVERTER_SN 2>/dev/null)
 
   # Check if the output is valid JSON
   if echo "$OUTPUT" | jq empty > /dev/null 2>&1; then
