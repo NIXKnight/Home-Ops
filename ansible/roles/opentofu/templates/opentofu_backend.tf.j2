@@ -1,7 +1,0 @@
-terraform {
-  backend "{{ OPENTOFU_BACKEND_CONFIG.type }}" {
-    {% for key, value in OPENTOFU_BACKEND_CONFIG.config.items() %}
-    {{ key }} = "{{ value }}"
-    {% endfor %}
-  }
-}

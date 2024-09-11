@@ -83,7 +83,8 @@ POWERDNS_SERVICE_MANIFEST:
 
 PDNS_SERVER_URL: "https://pdns.{{ ACME_DOMAIN_NAME }}"
 PDNS_TOFU_MODULE_CONFIG_FILE_DEST: "/tmp/pdns_config.yaml"
-
+PDNS_TOFU_MODULE_GIT_URL: "git@github.com:NIXKnight/OpenTofu-Module-PowerDNS.git"
+PDNS_TOFU_MODULE_VERSION: "main"
 PDNS_TOFU_PROJECT_PATH: "../terraform/modules/powerdns"
 PDNS_TOFU_STATE_DB_SCHEMA_NAME: "pdns"
 PDNS_TOFU_DNS_DEFAULT_TTL: 60

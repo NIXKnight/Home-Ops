@@ -20,3 +20,7 @@
 - name: acme
   src: https://github.com/NIXKnight/Ansible-Acme.git
   version: master
+
+- name: opentofu
+  src: https://github.com/NIXKnight/Ansible-Acme.git
+  version: master
