@@ -50,8 +50,11 @@ JENKINS_JCASC_CONFIG:
               uri: "unix:///var/run/docker.sock"
     securityRealm:
       oic:
-        automanualconfigure: "auto"
-        wellKnownOpenIDConfigurationUrl: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/jenkins/.well-known/openid-configuration"
+        serverConfiguration:
+          wellKnown:
+            scopesOverride: "openid profile email"
+            wellKnownOpenIDConfigurationUrl: "https://auth.{{ ACME_DOMAIN_NAME }}/application/o/jenkins/.well-known/openid-configuration"
+        allowedTokenExpirationClockSkewSeconds: 0
         clientId: "{{ JENKINS_AUTHENTIK_CLIENT_ID }}"
         clientSecret: "{{ JENKINS_AUTHENTIK_CLIENT_SECRET }}"
         disableSslVerification: true
@@ -59,7 +62,6 @@ JENKINS_JCASC_CONFIG:
         fullNameFieldName: "name"
         groupsFieldName: "groups"
         userNameField: "preferred_username"
-        scopes: "openid profile email"
   unclassified:
     location:
       url: "https://fw-jenkins.{{ ACME_DOMAIN_NAME }}/"

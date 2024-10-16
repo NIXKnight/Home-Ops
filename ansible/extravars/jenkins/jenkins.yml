@@ -7,7 +7,7 @@ JENKINS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ DOCKER_COMPOSE_SERVICE_NAM
 JENKINS_SERVICE_IMAGES:
   server:
     name: "jenkins/jenkins"
-    tag: "2.452.3-lts-jdk17"
+    tag: "2.462.3-lts-jdk17"
 JENKINS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/jenkins"
 JENKINS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/jenkins"
 JENKINS_IMAGE: "{{ JENKINS_SERVICE_IMAGES.server.name }}:{{ JENKINS_SERVICE_IMAGES.server.tag }}"
