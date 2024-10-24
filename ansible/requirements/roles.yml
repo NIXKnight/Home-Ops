@@ -22,5 +22,5 @@
   version: main
 
 - name: opentofu
-  src: https://github.com/NIXKnight/Ansible-Acme.git
+  src: https://github.com/NIXKnight/Ansible-OpenTofu.git
   version: main
