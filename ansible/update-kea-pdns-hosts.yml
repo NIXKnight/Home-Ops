@@ -7,8 +7,8 @@
   - "{{ playbook_dir }}/extravars/firewall.yml"
   - "{{ playbook_dir }}/extravars/kea/kea.yml"
   - "{{ playbook_dir }}/extravars/kea/kea_dhcp4_config.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
     - role: docker_compose_service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ KEA_SERVICE_NAME }}"
@@ -30,10 +30,10 @@
   vars_files:
   - "{{ playbook_dir }}/extravars/powerdns.yml"
   - "{{ playbook_dir }}/extravars/common.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/powerdns.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
   roles:
     - role: opentofu
       OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"

@@ -7,9 +7,9 @@
   - "{{ playbook_dir }}/extravars/data-services.yml"
   - "{{ playbook_dir }}/extravars/authentik.yml"
   - "{{ playbook_dir }}/extravars/powerdns.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/authentik.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/powerdns.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/authentik.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/powerdns.yml"
   roles:
     - role: docker_compose_service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ DATA_SERVICE_NAME }}"

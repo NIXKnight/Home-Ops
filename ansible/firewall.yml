@@ -5,7 +5,7 @@
   become: True
   vars_files:
   - "{{ playbook_dir }}/extravars/firewall.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/firewall.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/firewall.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
     - firewall

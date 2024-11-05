@@ -9,8 +9,8 @@
   - "{{ playbook_dir }}/extravars/monitoring/prometheus_config.yml"
   - "{{ playbook_dir }}/extravars/monitoring/telegraf_config.yml"
   - "{{ playbook_dir }}/extravars/powerdns.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/monitoring.yml"
   roles:
     - role: docker_compose_service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ MONITORING_SERVICE_NAME }}"
@@ -33,10 +33,10 @@
 #   vars_files:
 #   - "{{ playbook_dir }}/extravars/monitoring/grafana_config.yml"
 #   - "{{ playbook_dir }}/extravars/common.yml"
-#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
-#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/monitoring.yml"
-#   - "../../Ansible-Secrets/Linux-Firewall-Gateway/data-services.yml"
+#   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+#   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
+#   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/monitoring.yml"
+#   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
 #   roles:
 #     - role: opentofu
 #       OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ MONITORING_GRAFANA_TOFU_MODULE_CONFIG_FILE_DEST }}"

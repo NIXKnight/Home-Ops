@@ -8,8 +8,8 @@
   - "{{ playbook_dir }}/extravars/kea/kea.yml"
   - "{{ playbook_dir }}/extravars/kea/kea_dhcp4_config.yml"
   - "{{ playbook_dir }}/extravars/kea/kea_dhcp6_config.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/acme.yml"
-  - "../../Ansible-Secrets/Linux-Firewall-Gateway/kea.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
     - role: docker_compose_service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ KEA_SERVICE_NAME }}"
