@@ -9,6 +9,7 @@
   - "{{ playbook_dir }}/extravars/firewall.yml"
   - "{{ playbook_dir }}/extravars/kea/kea.yml"
   - "{{ playbook_dir }}/extravars/kea/kea_dhcp4_config.yml"
+  - "{{ playbook_dir }}/extravars/kea/kea_dhcp6_config.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
@@ -38,6 +39,8 @@
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
   roles:
     - role: opentofu
+      OPENTOFU_MODULE_GIT_URL: "{{ PDNS_TOFU_MODULE_GIT_URL }}"
+      OPENTOFU_MODULE_VERSION: "{{ PDNS_TOFU_MODULE_VERSION }}"
       OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
       OPENTOFU_PROJECT_PATH: "{{ PDNS_TOFU_PROJECT_PATH }}"
       OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ PDNS_TOFU_STATE_DB_SCHEMA_NAME }}"
