@@ -3,6 +3,8 @@
   hosts: all
   gather_facts: yes
   become: True
+  collections:
+    - nixknight.docker
   vars_files:
   - "{{ playbook_dir }}/extravars/firewall.yml"
   - "{{ playbook_dir }}/extravars/kea/kea.yml"
@@ -10,7 +12,7 @@
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
-    - role: docker_compose_service
+    - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ KEA_SERVICE_NAME }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ KEA_SERVICE_SYSTEMD_DESCRIPTION }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ KEA_SERVICE_SYSTEMD_REQUIRES }}"

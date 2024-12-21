@@ -3,11 +3,13 @@
   hosts: all
   gather_facts: yes
   become: True
+  collections:
+    - nixknight.docker
   vars_files:
   - "{{ playbook_dir }}/extravars/authentik.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/authentik.yml"
   roles:
-    - role: docker_compose_service
+    - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ AUTHENTIK_SERVICE_NAME }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ AUTHENTIK_SERVICE_SYSTEMD_DESCRIPTION }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ AUTHENTIK_SERVICE_SYSTEMD_REQUIRES }}"

@@ -3,12 +3,14 @@
   hosts: all
   gather_facts: yes
   become: True
+  collections:
+    - nixknight.docker
   vars_files:
   - "{{ playbook_dir }}/extravars/powerdns.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/powerdns.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   roles:
-    - role: docker_compose_service
+    - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ POWERDNS_SERVICE_NAME }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ POWERDNS_SERVICE_SYSTEMD_DESCRIPTION }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ POWERDNS_SERVICE_SYSTEMD_REQUIRES }}"

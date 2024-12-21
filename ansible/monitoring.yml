@@ -3,6 +3,8 @@
   hosts: all
   gather_facts: yes
   become: True
+  collections:
+    - nixknight.docker
   vars_files:
   - "{{ playbook_dir }}/extravars/firewall.yml"
   - "{{ playbook_dir }}/extravars/monitoring/monitoring.yml"
@@ -12,7 +14,7 @@
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/monitoring.yml"
   roles:
-    - role: docker_compose_service
+    - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ MONITORING_SERVICE_NAME }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ MONITORING_SERVICE_SYSTEMD_DESCRIPTION }}"
       DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ MONITORING_SERVICE_SYSTEMD_REQUIRES }}"

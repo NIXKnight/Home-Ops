@@ -1,1 +1,10 @@
 ---
+# Install the collections using:
+# ansible-galaxy collection install -p collections -r ./requirements/collections.yml
+collections:
+  - name: nixknight.docker
+    type: git
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-collection-0.1.0"
+  - name: nixknight.opentofu
+    type: git
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/opentofu,opentofu-collection-0.1.2"
