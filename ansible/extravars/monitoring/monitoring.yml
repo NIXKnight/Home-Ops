@@ -19,7 +19,7 @@ MONITORING_SERVICE_IMAGES:
     tag: "10.2.8"
 MONITORING_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/monitoring"
 MONITORING_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/monitoring"
-MONITORING_COMPOSE_SERVICE_CONFIG_FILES:
+MONITORING_COMPOSE_SERVICE_TEMPLATES:
   - src: "{{ playbook_dir }}/templates/monitoring/prometheus.yml.j2"
     dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/prometheus.yml"
     mode: 644
@@ -30,7 +30,8 @@ MONITORING_COMPOSE_SERVICE_CONFIG_FILES:
     mode: 644
     owner: "root"
     group: "root"
-  - src: "{{ playbook_dir }}/templates/monitoring/get-deye-data.sh.j2"
+MONITORING_COMPOSE_SERVICE_FILES:
+  - src: "{{ playbook_dir }}/scripts/monitoring/get-deye-data.sh"
     dest: "{{ MONITORING_COMPOSE_SERVICE_CONFIG_PATH }}/get-deye-data.sh"
     mode: 755
     owner: "root"

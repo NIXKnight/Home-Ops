@@ -11,7 +11,7 @@ KEA_SERVICE_IMAGES:
 KEA_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/kea"
 KEA_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/kea"
 KEA_IMAGE: "{{ KEA_SERVICE_IMAGES.kea.name }}:{{ KEA_SERVICE_IMAGES.kea.tag }}"
-KEA_COMPOSE_SERVICE_CONFIG_FILES:
+KEA_COMPOSE_SERVICE_TEMPLATES:
   - src: "{{ playbook_dir }}/templates/kea/dhcp4-config.json.j2"
     dest: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}/kea-dhcp4.json"
     mode: 644

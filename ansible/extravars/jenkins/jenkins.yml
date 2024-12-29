@@ -11,7 +11,7 @@ JENKINS_SERVICE_IMAGES:
 JENKINS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/jenkins"
 JENKINS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/jenkins"
 JENKINS_IMAGE: "{{ JENKINS_SERVICE_IMAGES.server.name }}:{{ JENKINS_SERVICE_IMAGES.server.tag }}"
-JENKINS_COMPOSE_SERVICE_CONFIG_FILES:
+JENKINS_COMPOSE_SERVICE_TEMPLATES:
   - src: "{{ playbook_dir }}/templates/jenkins/config/jcasc-config.yaml.j2"
     dest: "{{ JENKINS_COMPOSE_SERVICE_CONFIG_PATH }}/jcasc-config.yaml"
     mode: 644

@@ -11,7 +11,7 @@ POWERDNS_SERVICE_IMAGES:
 POWERDNS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/powerdns"
 POWERDNS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/powerdns"
 POWERDNS_IMAGE: "{{ POWERDNS_SERVICE_IMAGES.powerdns.name }}:{{ POWERDNS_SERVICE_IMAGES.powerdns.tag }}"
-POWERDNS_COMPOSE_SERVICE_CONFIG_FILES:
+POWERDNS_COMPOSE_SERVICE_TEMPLATES:
   - src: "{{ playbook_dir }}/templates/pdns/recursor.conf.j2"
     dest: "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/recursor.conf"
     mode: 644

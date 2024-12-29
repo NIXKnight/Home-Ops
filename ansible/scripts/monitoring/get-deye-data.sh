@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# {{ ansible_managed }}
-
 # This script assumes that you have installed deye-controller (https://github.com/githubDante/deye-controller) Python library and tools
 # and that deye-read is available in PATH
 
