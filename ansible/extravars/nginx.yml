@@ -42,6 +42,11 @@ NGINX_COMPOSE_SERVICE_TEMPLATES:
     mode: 0644
     owner: "root"
     group: "root"
+  - src: "{{ playbook_dir }}/templates/nginx/pi-hole.conf.j2"
+    dest: "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pi-hole.conf"
+    mode: 0644
+    owner: "root"
+    group: "root"
 NGINX_SERVICE_MANIFEST:
   dest: "{{ NGINX_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
   content:
@@ -58,3 +63,5 @@ NGINX_SERVICE_MANIFEST:
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pgadmin.conf:/etc/nginx/conf.d/04_pgadmin.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/jenkins.conf:/etc/nginx/conf.d/05_jenkins.conf"
           - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/monitoring.conf:/etc/nginx/conf.d/06_monitoring.conf"
+          - "{{ NGINX_COMPOSE_SERVICE_CONFIG_PATH }}/pi-hole.conf:/etc/nginx/conf.d/07_pi-hole.conf"
+

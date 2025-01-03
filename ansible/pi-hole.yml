@@ -1,0 +1,25 @@
+---
+- name: Install/Upgrade Pi-Hole
+  hosts: all
+  gather_facts: yes
+  become: True
+  collections:
+    - nixknight.docker
+  vars_files:
+  - "{{ playbook_dir }}/extravars/pi-hole.yml"
+  - "{{ playbook_dir }}/extravars/firewall.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/pi-hole.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
+  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
+  roles:
+    - role: docker-compose-service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ PI_HOLE_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ PI_HOLE_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ PI_HOLE_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ PI_HOLE_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ PI_HOLE_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ PI_HOLE_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ PI_HOLE_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ PI_HOLE_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ PI_HOLE_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ PI_HOLE_SERVICE_MANIFEST }}"

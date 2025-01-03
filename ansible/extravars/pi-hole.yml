@@ -1,0 +1,52 @@
+---
+PI_HOLE_SERVICE_NAME: "hops-pi-hole"
+PI_HOLE_SERVICE_SYSTEMD_DESCRIPTION: "HomeOps - PiHole DNS Resolver"
+PI_HOLE_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service"
+PI_HOLE_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service"
+PI_HOLE_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ PI_HOLE_SERVICE_NAME }}.service"
+PI_HOLE_SERVICE_IMAGES:
+  pi_hole:
+    name: "pihole/pihole"
+    tag: "2024.07.0"
+PI_HOLE_SERVICE_COMPOSE_PATH: "/etc/home-ops/docker-compose/pi-hole"
+PI_HOLE_COMPOSE_SERVICE_CONFIG_PATH: "/etc/home-ops/config/pi-hole"
+PI_HOLE_COMPOSE_SERVICE_TEMPLATES:
+  - src: "{{ playbook_dir }}/templates/pi-hole/99-user.conf.j2"
+    dest: "{{ PI_HOLE_COMPOSE_SERVICE_CONFIG_PATH }}/99-user.conf"
+    mode: 644
+    owner: "root"
+    group: "root"
+PI_HOLE_IMAGE: "{{ PI_HOLE_SERVICE_IMAGES.pi_hole.name }}:{{ PI_HOLE_SERVICE_IMAGES.pi_hole.tag }}"
+PI_HOLE_LOCAL_DOMAIN_SERVER: "127.0.0.1#5300"
+PI_HOLE_SERVICE_MANIFEST:
+  dest: "{{ PI_HOLE_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
+  content:
+    services:
+      main:
+        image: "{{ PI_HOLE_IMAGE }}"
+        environment:
+          WEBPASSWORD: "{{ PI_HOLE_ADMIN_PASSWORD }}"
+          PIHOLE_DNS_: "8.8.8.8;8.8.4.4"
+          DHCP_ACTIVE: false
+          DHCP_IPv6: false
+          WEBTHEME: "default-darker"
+          INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
+          DNSMASQ_LISTENING: "single"
+          WEB_PORT: "8083"
+          WEB_BIND_ADDR: "{{ KEA_SUBNET4 | ansible.netcommon.ipmath(1) }}"
+          WEBLOGS_STDOUT: 1
+        network_mode: host
+        volumes:
+          - "/etc/localtime:/etc/localtime:ro"
+          - "pihole_config:/etc/pihole"
+          - "dnsmasq_config:/etc/dnsmasq.d"
+          - "{{ PI_HOLE_COMPOSE_SERVICE_CONFIG_PATH }}/99-user.conf:/etc/dnsmasq.d/99-user.conf"
+        cap_add:
+          - "CAP_CHOWN"
+          - "CAP_NET_BIND_SERVICE"
+          - "CAP_NET_RAW"
+    volumes:
+      pihole_config:
+        driver: local
+      dnsmasq_config:
+        driver: local

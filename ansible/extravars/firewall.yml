@@ -16,14 +16,14 @@ FIREWALL_OPEN_PORTS:
   - INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
     PROTOCOL: "tcp"
     PORT: "5432"
-FIREWALL_FORWARDED_PORTS_PRIV2UNPRIV:
-  - PROTOCOL: "udp"
+  - INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
+    PROTOCOL: "tcp"
     PORT: "53"
-    DEST_PORT: "5301"
+  - INTERFACE: "{{ FIREWALL_LAN_INTERFACE }}"
+    PROTOCOL: "udp"
+    PORT: "53"
 FIREWALL_ADDITIONAL_RULES:
-  # # Allow the box itself to make DNS queries to PowerDNS Recursor on the custom port
-  - nft add rule ip nat OUTPUT ip daddr 127.0.0.1 udp dport 53 dnat to 127.0.0.1:5301
-  # Allow DNS requests made by the recursor and their response
+  # Allow DNS requests made by the pi-hole and their response
   - nft add rule inet filter INPUT iif enp2s0 udp sport 53 ip saddr {8.8.8.8, 8.8.4.4} accept
   - nft add rule inet filter OUTPUT oif enp2s0 udp dport 53 ip daddr {8.8.8.8, 8.8.4.4} accept
 FIREWALL_LAN_MAC_RESTRICTION_ENABLED: true

@@ -1,6 +1,6 @@
 ---
 POWERDNS_SERVICE_NAME: "fw-powerdns"
-POWERDNS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall DNS Services - PowerDNS Server and Recursor"
+POWERDNS_SERVICE_SYSTEMD_DESCRIPTION: "Firewall Local DNS - PowerDNS Server"
 POWERDNS_SERVICE_SYSTEMD_REQUIRES: "network-online.target docker.service fw-data.service"
 POWERDNS_SERVICE_SYSTEMD_AFTER: "network-online.target time-sync.target docker.service fw-data.service"
 POWERDNS_SERVICE_SYSTEMD_FILE: "/etc/systemd/system/{{ POWERDNS_SERVICE_NAME }}.service"
@@ -12,11 +12,6 @@ POWERDNS_SERVICE_COMPOSE_PATH: "/etc/firewall-gw/docker-compose/powerdns"
 POWERDNS_COMPOSE_SERVICE_CONFIG_PATH: "/etc/firewall-gw/config/powerdns"
 POWERDNS_IMAGE: "{{ POWERDNS_SERVICE_IMAGES.powerdns.name }}:{{ POWERDNS_SERVICE_IMAGES.powerdns.tag }}"
 POWERDNS_COMPOSE_SERVICE_TEMPLATES:
-  - src: "{{ playbook_dir }}/templates/pdns/recursor.conf.j2"
-    dest: "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/recursor.conf"
-    mode: 644
-    owner: "root"
-    group: "root"
   - src: "{{ playbook_dir }}/templates/pdns/server.conf.j2"
     dest: "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/server.conf"
     mode: 644
@@ -32,16 +27,6 @@ PDNS_SERVER_LOCAL_PORT: 5300
 PDNS_SERVER_API_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
 PDNS_SERVER_API_PORT: 8081
 PDNS_SERVER_API_ALLOW_FROM: "{{ PDNS_SERVER_DB_HOST }}/32"
-
-PDNS_RECURSOR_THREADS: 4
-PDNS_RECURSOR_LOCAL_ZONE: "{{ ACME_DOMAIN_NAME }}"
-PDNS_RECURSOR_LOCAL_DNS_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
-PDNS_RECURSOR_LOCAL_DNS_PORT: 5300
-PDNS_RECURSOR_LISTEN_ADDRESS: 0.0.0.0:5301
-PDNS_RECURSOR_UPSTREAM_RESOLVERS: "8.8.8.8;8.8.4.4"
-PDNS_RECURSOR_WEB_SERVER_LOCAL_ADDRESS: "{{ PDNS_SERVER_DB_HOST }}"
-PDNS_RECURSOR_WEB_SERVER_LOCAL_PORT: 8082
-PDNS_RECURSOR_WEB_SERVER_ALLOW_FROM: "{{ PDNS_SERVER_API_ALLOW_FROM }}"
 
 POWERDNS_SERVICE_MANIFEST:
   dest: "{{ POWERDNS_SERVICE_COMPOSE_PATH }}/docker-compose.yml"
@@ -65,21 +50,6 @@ POWERDNS_SERVICE_MANIFEST:
           timeout: 5s
           retries: 5
           start_period: 30s
-      powerdns-recursor:
-        image: "{{ POWERDNS_IMAGE }}"
-        command: [ "/usr/local/bin/pdns.sh", "--recursor" ]
-        network_mode: host
-        volumes:
-          - "{{ POWERDNS_COMPOSE_SERVICE_CONFIG_PATH }}/recursor.conf:/etc/powerdns/recursor.conf"
-        healthcheck:
-          test: ["CMD-SHELL", "dig @127.0.0.1 -p 5301 google.com +short"]
-          interval: 15s
-          timeout: 5s
-          retries: 5
-          start_period: 30s
-        depends_on:
-          powerdns-server:
-            condition: service_healthy
 
 PDNS_SERVER_URL: "https://pdns.{{ ACME_DOMAIN_NAME }}"
 PDNS_TOFU_MODULE_CONFIG_FILE_DEST: "/tmp/pdns_config.yaml"
