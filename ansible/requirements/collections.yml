@@ -4,7 +4,10 @@
 collections:
   - name: nixknight.docker
     type: git
-    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-collection-0.1.0"
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/docker,docker-0.1.1"
   - name: nixknight.opentofu
     type: git
-    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/opentofu,opentofu-collection-0.1.3"
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/opentofu,opentofu-0.1.3"
+  - name: nixknight.general
+    type: git
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/general,main"
