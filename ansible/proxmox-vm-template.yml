@@ -1,0 +1,196 @@
+---
+- name: Mount PVE Cloud Image
+  connection: local
+  hosts: localhost
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  tasks:
+    - name: Set Mount Point Facts
+      ansible.builtin.set_fact:
+        rootfs_mount_point_mounted: "{{ MOUNT_POINT is ansible.builtin.mount }}"
+        sys_mount_point_mounted: "{{ (MOUNT_POINT + '/' + 'sys') is ansible.builtin.mount }}"
+        dev_mount_point_mounted: "{{ (MOUNT_POINT + '/' + 'dev') is ansible.builtin.mount }}"
+
+    - name: Check For Existing Cloud Image
+      ansible.builtin.stat:
+        path: "{{ CLOUD_IMAGE_PATH }}"
+      register: cloud_image
+
+    - name: Check For Existing NBD Device
+      ansible.builtin.stat:
+        path: "{{ MOUNT_DEVICE }}"
+      register: mount_device
+
+    - name: Download Generic Cloud Image
+      ansible.builtin.get_url:
+        url: "{{ CLOUD_IMAGE_URL }}"
+        dest: "{{ CLOUD_IMAGE_PATH }}"
+        mode: 644
+      when: not cloud_image.stat.exists
+
+    - name: Load NBD Module
+      community.general.modprobe:
+        name: "nbd"
+        params: "max_part=2"
+        state: present
+
+    - name: Connect Cloud Image Using NBD
+      ansible.builtin.shell:
+        cmd: "qemu-nbd --connect={{ MOUNT_DEVICE }} {{ CLOUD_IMAGE_PATH }}"
+      args:
+        executable: "/bin/bash"
+      when: not mount_device.stat.exists
+
+    - name: Mount the NBD Exported Cloud Image
+      ansible.posix.mount:
+        src: "{{ MOUNT_DEVICE }}p1"
+        path: "{{ MOUNT_POINT }}"
+        fstype: auto
+        state: ephemeral
+      when: not rootfs_mount_point_mounted
+
+    - name: Mount /sys and /dev into {{ MOUNT_POINT }}
+      ansible.posix.mount:
+        src: "/{{ item }}"
+        path: "{{ MOUNT_POINT }}/{{ item }}"
+        fstype: none
+        opts: bind
+        state: ephemeral
+      with_items:
+        - "sys"
+        - "dev"
+      when: (item == "sys" and not sys_mount_point_mounted) or (item == "dev" and not dev_mount_point_mounted)
+
+    - name: Remove Existing Symlink {{ MOUNT_POINT }}/etc/resolv.conf
+      ansible.builtin.file:
+        path: "{{ MOUNT_POINT }}/etc/resolv.conf"
+        state: absent
+
+    - name: Copy /etc/resolv.conf to {{ MOUNT_POINT }}/etc/resolv.conf
+      ansible.builtin.copy:
+        src: "/etc/resolv.conf"
+        dest: "{{ MOUNT_POINT }}/etc/resolv.conf"
+
+- name: Update PVE Cloud Image
+  connection: community.general.chroot
+  hosts: chroot
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  tasks:
+    - name: Install Updates
+      ansible.builtin.apt:
+        upgrade: dist
+        update_cache: yes
+
+    - name: Install Packages
+      ansible.builtin.apt:
+        pkg: "{{ PROXMOX_VM_PACKAGES }}"
+        state: present
+
+    - name: Remove Unwanted Dependencies
+      ansible.builtin.apt:
+        autoremove: yes
+
+    - name: Clean Packages and Install Scripts
+      ansible.builtin.apt:
+        clean: yes
+
+    - name: Remove Existing File /etc/resolv.conf
+      ansible.builtin.file:
+        path: "/etc/resolv.conf"
+        state: absent
+
+    - name: Recreate Symlink {{ MOUNT_POINT }}/etc/resolv.conf
+      ansible.builtin.file:
+        src: "/run/systemd/resolve/resolv.conf"
+        dest: "/etc/resolv.conf"
+        state: link
+        force: yes
+
+- name: Unmount Cloud Image
+  connection: local
+  hosts: localhost
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  tasks:
+    - name: Set Mount Point Facts
+      ansible.builtin.set_fact:
+        rootfs_mount_point_mounted: "{{ MOUNT_POINT is ansible.builtin.mount }}"
+        sys_mount_point_mounted: "{{ (MOUNT_POINT + '/' + 'sys') is ansible.builtin.mount }}"
+        dev_mount_point_mounted: "{{ (MOUNT_POINT + '/' + 'dev') is ansible.builtin.mount }}"
+
+    - name: Umount {{ MOUNT_POINT }}/sys, {{ MOUNT_POINT }}/dev and {{ MOUNT_POINT }}
+      ansible.posix.mount:
+        path: "{{ item }}"
+        state: unmounted
+      with_items:
+        - "{{ MOUNT_POINT }}/sys"
+        - "{{ MOUNT_POINT }}/dev"
+        - "{{ MOUNT_POINT }}"
+      when: (item == "{{ MOUNT_POINT }}/sys" and sys_mount_point_mounted) or (item == "{{ MOUNT_POINT }}/dev" and dev_mount_point_mounted) or (item == "{{ MOUNT_POINT }}" and rootfs_mount_point_mounted)
+
+    - name: Disconnect Cloud Image Using NBD
+      ansible.builtin.shell:
+        cmd: "qemu-nbd --disconnect {{ MOUNT_DEVICE }}"
+      args:
+        executable: /bin/bash
+
+    - name: Unload NBD Module
+      community.general.modprobe:
+        name: "nbd"
+        state: absent
+
+- name: Add Proxmox Hosts
+  hosts: localhost
+  gather_facts: false
+  become: false
+  vars_files:
+  - "../../Home-Ops-Internal/ansible/proxmox-nodes.yml"
+  tasks:
+    - name: Add Proxmox Hosts
+      ansible.builtin.add_host:
+        name: "{{ item }}"
+        group: "proxmox"
+        ansible_user: "{{ lookup('env', 'LOGNAME') }}"
+        ansible_ssh_private_key_file: "{{ lookup('env', 'HOME') + '/.ssh/id_rsa' }}"
+      with_items: "{{ PROXMOX_NODES }}"
+
+- name: Create Proxmox VM Template
+  hosts: proxmox
+  gather_facts: false
+  become: true
+  vars_files:
+  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  tasks:
+    - name: Copy the Cloud Image to Remote Proxmox Node
+      ansible.builtin.copy:
+        src: "{{ CLOUD_IMAGE_PATH }}"
+        dest: "{{ CLOUD_IMAGE_DESTINATION_PATH }}"
+        mode: 0644
+
+    - name: Create a VM
+      community.general.proxmox_kvm: "{{ PROXMOX_VM_TEMPLATE_PARAMETERS }}"
+
+    - name: Import Disk(s) to Thin-LVM Storage {{ PROXMOX_STORAGE }}
+      ansible.builtin.shell: "qm importdisk {{ PROXMOX_VM_TEMPLATE_PARAMETERS.vmid }} {{ CLOUD_IMAGE_DESTINATION_PATH }} {{ PROXMOX_STORAGE }}"
+      args:
+        executable: /bin/bash
+
+    - name: Attach Imported Disk to the VM
+      ansible.builtin.shell: "qm set {{ PROXMOX_VM_TEMPLATE_PARAMETERS.vmid }} --virtio0 {{ PROXMOX_STORAGE }}:vm-{{ PROXMOX_VM_TEMPLATE_PARAMETERS.vmid }}-disk-0"
+      args:
+        executable: /bin/bash
+
+    - name: Convert VM to VM Template
+      community.general.proxmox_kvm:
+        vmid: "{{ PROXMOX_VM_TEMPLATE_PARAMETERS.vmid }}"
+        state: template
+        api_host: "{{ PROXMOX_API_HOST }}"
+        api_user: "{{ PROXMOX_API_USER }}"
+        api_password: "{{ PROXMOX_API_PASSWORD }}"

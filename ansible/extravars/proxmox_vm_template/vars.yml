@@ -1,0 +1,31 @@
+---
+# playbook vars
+CLOUD_IMAGE_URL: "{{ lookup('ansible.builtin.env', 'CLOUD_IMAGE_URL') | default('https://cdimage.debian.org/images/cloud/bookworm/latest/debian-12-genericcloud-amd64.qcow2', true) }}"
+CLOUD_IMAGE_PATH: "{{ lookup('ansible.builtin.env', 'CLOUD_IMAGE_PATH') | default('/tmp/debian-12-genericcloud-amd64.qcow2', true) }}"
+CLOUD_IMAGE_DESTINATION_PATH: "{{ lookup('ansible.builtin.env', 'CLOUD_IMAGE_DESTINATION_PATH') | default('/var/lib/vz/images/debian-12-genericcloud-amd64.qcow2', true) }}"
+MOUNT_POINT: "/mnt"
+MOUNT_DEVICE: "/dev/nbd0"
+PROXMOX_NODE_NAME: "{{ lookup('ansible.builtin.env', 'PROXMOX_NODE_NAME') }}"
+PROXMOX_API_HOST: "{{ lookup('ansible.builtin.env', 'PROXMOX_API_HOST') }}"
+PROXMOX_API_USER: "{{ lookup('ansible.builtin.env', 'PROXMOX_API_USER') }}"
+PROXMOX_API_PASSWORD: "{{ lookup('ansible.builtin.env', 'PROXMOX_API_PASSWORD') }}"
+PROXMOX_STORAGE: "storage"
+PROXMOX_VM_TEMPLATE_PARAMETERS:
+  name: "debian-bookworm-amd64"
+  vmid: "9999"
+  sockets: "1"
+  cores: "2"
+  memory: "4096"
+  ostype: "l26"
+  ide:
+    ide2: 'local:cloudinit,format=qcow2'
+  agent: "enabled=1,fstrim_cloned_disks=1"
+  boot: "order=virtio0"
+  state: present
+  node: "{{ PROXMOX_NODE_NAME }}"
+  api_host: "{{ PROXMOX_API_HOST }}"
+  api_user: "{{ PROXMOX_API_USER }}"
+  api_password: "{{ PROXMOX_API_PASSWORD }}"
+  validate_certs: no
+PROXMOX_VM_PACKAGES:
+  - "qemu-guest-agent"
