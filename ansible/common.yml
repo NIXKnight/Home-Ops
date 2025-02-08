@@ -3,8 +3,10 @@
   hosts: all
   gather_facts: yes
   become: True
+  collections:
+    - nixknight.general
   vars_files:
   - "{{ playbook_dir }}/extravars/common.yml"
   roles:
-    - role: linux_common
+    - role: linux-common
     - role: motd

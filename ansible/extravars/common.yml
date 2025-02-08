@@ -1,26 +1,13 @@
 ---
 # linux_common variables
 LC_CHANGE_HOSTNAME: False
-ansible_user_id: "saadali" # set to the ssh user
-#inventory_hostname_short: ""
 LC_SET_LOCALES: False
 LC_SETUP_SUDO: False
-LC_LOCALES:
-  - "en_US.UTF-8 UTF-8"
-LC_DEFAULT_LOCALE: "en_US.UTF-8 UTF-8"
-LC_MODIFY_SYSTEM_SHELL_ENV: True
-LC_MODIFY_SKEL: True
-LC_MODIFY_ROOT_SHELL_ENV: True
-LC_MODIFY_USER_SHELL_ENV: True
 LC_DEBIAN_MIRROR: "deb.debian.org"
-LC_DEBIAN_REPOS: "main contrib non-free non-free-firmware"
+LC_APT_DEBIAN_COMPONENTS: "main contrib non-free non-free-firmware"
 LC_INSTALL_PACKAGES: True
-LC_REBOOT: False
-LC_CHANGE_TIMEZONE: False
-LC_ENABLE_SRC_REPOS: False
-LC_ENABLE_APT_BACKPORTS: False
-LC_CHANGES_APT_DEFAULT_SOURCES_LIST: False
-LC_TIMEZONE: "Asia/Karachi"
+LC_REBOOT: True
+LC_CHANGES_APT_DEFAULT_SOURCES_LIST: True
 LC_SET_KERNEL_PARAMETERS: True
 LC_KERNEL_PARAMETERS:
   - { name: "vm.swappiness", value: 1, state: present }
@@ -30,10 +17,23 @@ LC_KERNEL_PARAMETERS:
   - { name: "fs.inotify.max_user_instances", value: 524288, state: present }
   - { name: "net.ipv4.ip_forward", value: 1, state: present }
   - { name: "net.ipv6.conf.all.forwarding", value: 1, state: present }
+LC_SETUP_THIRD_PARTY_REPOS: true
+LC_THIRD_PARTY_REPOS:
+  - NAME: "docker-ce"
+    URL: "https://download.docker.com/linux/debian"
+    SUITES: "{{ ansible_distribution_release }}"
+    COMPONENTS: "stable"
+    APT_KEY_URL: "https://download.docker.com/linux/debian/gpg"
+    APT_KEY_LOCAL_PATH: "/etc/apt/keyrings/docker.asc"
 LC_EXTRA_PACKAGES:
   - "gpg"
   - "apt-transport-https"
+  - "python3-passlib"
   - "python3-psycopg2"
+  - "docker-ce"
+  - "docker-ce-cli"
+  - "docker-buildx-plugin"
+  - "docker-compose-plugin"
 
 # motd variables
 memory_info: False
