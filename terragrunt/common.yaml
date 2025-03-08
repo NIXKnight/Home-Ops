@@ -1,0 +1,4 @@
+---
+tags:
+  Managed-By: Terragrunt
+  TF-Distribution: OpenTofu
