@@ -1,0 +1,87 @@
+#!/usr/bin/env python3
+import sys
+import os
+import argparse
+import yaml
+from ansible.parsing.vault import VaultLib, VaultSecret
+from ansible.constants import DEFAULT_VAULT_ID_MATCH
+
+# Create a custom YAML loader that decrypts !vault tagged values.
+class VaultLoader(yaml.SafeLoader):
+    pass
+
+def vault_constructor(loader, node):
+    # Get the encrypted text from the node.
+    encrypted_text = node.value
+    if isinstance(encrypted_text, str):
+        encrypted_text = encrypted_text.encode('utf-8')
+    # Use the attached vault_lib instance to decrypt the value.
+    vault_lib = loader.vault_lib
+    try:
+        decrypted = vault_lib.decrypt(encrypted_text)
+    except Exception as e:
+        sys.exit(f"Error decrypting a vault field: {e}")
+    # Load the decrypted content (it may be YAML formatted).
+    return yaml.safe_load(decrypted)
+
+# Associate the constructor with the !vault tag.
+VaultLoader.add_constructor(u'!vault', vault_constructor)
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Extract a variable from an Ansible vault YAML file."
+    )
+    parser.add_argument("vault_file", help="Path to the Ansible vault YAML file")
+    parser.add_argument("variable", help="Name of the variable to extract")
+    parser.add_argument("--vault-password", help="Vault password")
+    parser.add_argument("--vault-password-file", help="File containing the vault password")
+    args = parser.parse_args()
+
+    # Check environment variables first.
+    env_vault_password_file = os.environ.get("VAULT_PASSWORD_FILE")
+    env_vault_password = os.environ.get("VAULT_PASSWORD")
+
+    vault_password = None
+
+    if env_vault_password_file:
+        try:
+            with open(env_vault_password_file, "r") as f:
+                vault_password = f.read().strip()
+        except Exception as e:
+            sys.exit(f"Error reading vault password file from VAULT_PASSWORD_FILE: {e}")
+    elif env_vault_password:
+        vault_password = env_vault_password
+    elif args.vault_password_file:
+        try:
+            with open(args.vault_password_file, "r") as f:
+                vault_password = f.read().strip()
+        except Exception as e:
+            sys.exit(f"Error reading vault password file from argument: {e}")
+    elif args.vault_password:
+        vault_password = args.vault_password
+
+    if not vault_password:
+        sys.exit("Error: No vault password provided. Please set VAULT_PASSWORD_FILE or VAULT_PASSWORD environment variable, or use --vault-password-file or --vault-password.")
+
+    # Setup the vault secret and VaultLib instance.
+    secret = VaultSecret(vault_password.encode("utf-8"))
+    vault = VaultLib([(DEFAULT_VAULT_ID_MATCH, secret)])
+
+    # Attach the vault_lib instance to our custom loader.
+    VaultLoader.vault_lib = vault
+
+    # Load the YAML file using the custom loader.
+    try:
+        with open(args.vault_file, "r") as f:
+            data = yaml.load(f, Loader=VaultLoader)
+    except Exception as e:
+        sys.exit(f"Error loading vault file: {e}")
+
+    # Extract and print the specified variable.
+    if args.variable in data:
+        print(data[args.variable])
+    else:
+        sys.exit(f"Variable '{args.variable}' not found in the vault file.")
+
+if __name__ == '__main__':
+    main()
