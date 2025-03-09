@@ -9,6 +9,8 @@ ansible/.ansible_vault_password
 *debug*
 .terraform
 .terraform.lock.hcl
+.terragrunt-cache
 terraform.tfstate
 terraform.tfstate.backup
 backend.tf
+.envrc
