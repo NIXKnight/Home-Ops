@@ -1,4 +1,7 @@
 ---
+remote_modules:
+  proxmox_vm:
+    source: "git::https://github.com/NIXKnight/OpenTofu-Module-Proxmox-VM.git?ref=main"
 tags:
   Managed-By: Terragrunt
   TF-Distribution: OpenTofu
