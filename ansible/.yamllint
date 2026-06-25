@@ -1,0 +1,71 @@
+---
+# yamllint configuration for the Home-Ops Ansible tree.
+#
+# Goal: catch genuine YAML mistakes (trailing whitespace, key duplication,
+# missing EOF newline, tabs, bad colon/comma spacing) while NOT failing on this
+# established codebase's deliberate style: capitalized booleans
+# (True/False/yes), flow collections with inner padding (`{ name: x }`,
+# `[ a, b ]`), and a sequence-indentation convention that varies between files.
+# Line length is a warning, not a build-breaking error.
+#
+# Run from inside ansible/ so this file is discovered:  yamllint .
+# (CI uses working-directory: ansible/ and `yamllint .`.)
+
+extends: default
+
+ignore: |
+  collections/
+  external-roles/
+
+rules:
+  # Long lines are surfaced as warnings, not errors. Several group_vars hold
+  # long single-line structures that read better unwrapped.
+  line-length:
+    max: 160
+    level: warning
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # The codebase uses Ansible's capitalized/word booleans (become: True,
+  # gather_facts: yes). Permit them as values; do not police keys.
+  truthy:
+    allowed-values: ["true", "false", "True", "False", "yes", "no", "Yes", "No"]
+    check-keys: false
+
+  # Files in this tree start with `---`; do not flag its presence or absence.
+  document-start: disable
+
+  # Sequence indentation is inconsistent across the existing files (some list
+  # items sit flush under the parent key, others are indented +2). No single
+  # yamllint setting (true/false/consistent) fits the whole tree, and the task
+  # forbids mass-editing playbook content to satisfy style. Structural breakage
+  # is still caught by the YAML parser and by ansible-lint. So: disabled.
+  indentation: disable
+
+  # Inline flow mappings/sequences are written with padding spaces by
+  # convention here (`{ name: "x", value: 1 }`, `[ "a", "b" ]`). Allow them.
+  braces:
+    max-spaces-inside: 1
+    min-spaces-inside: 0
+  brackets:
+    max-spaces-inside: 1
+    min-spaces-inside: 0
+
+  # Existing tasks use unquoted file modes (mode: 0644, mode: 0755). Quoting all
+  # of them across untouched playbooks is out of scope for this docs/lint phase,
+  # so the octal rule is disabled. ansible-lint will emit a cosmetic warning
+  # that it would prefer forbid-*: true (it consumes this file); that warning is
+  # non-fatal and does not affect the lint result. Disabling here keeps both
+  # yamllint and ansible-lint's yaml[octal-values] check quiet on these modes.
+  octal-values: disable
+
+  # Tolerate a stray trailing blank line; not worth failing CI over.
+  empty-lines:
+    max: 1
+    max-start: 0
+    max-end: 1
+
+  comments:
+    require-starting-space: true
+    min-spaces-from-content: 1
+  comments-indentation: disable

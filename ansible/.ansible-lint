@@ -1,0 +1,47 @@
+---
+# ansible-lint configuration for the Home-Ops Ansible tree.
+#
+# Profile: moderate — enforces correctness and common production rules without
+# the strictness of "safety"/"shared"/"production", which would flood this
+# established codebase. YAML style minutiae (line length, indentation) is
+# handled by yamllint (.yamllint), not duplicated here.
+#
+# Run from inside ansible/:  ansible-lint
+# (CI uses working-directory: ansible/.)
+
+profile: moderate
+
+exclude_paths:
+  - collections/        # installed Ansible collections (vendored, git-ignored)
+  - external-roles/     # third-party Galaxy roles (vendored, git-ignored)
+  - .github/            # CI workflow YAML, linted separately by yamllint
+
+# Documented baseline. Each skip below is an intentional, established convention
+# in this repo; none is a latent bug introduced by the docs/lint phase. The task
+# forbids mass-editing playbook content to satisfy style, so these are tuned in
+# config rather than by rewriting working playbooks.
+skip_list:
+  # The codebase intentionally uses UPPER_CASE variables (e.g. KEA_SERVICE_NAME)
+  # passed into reusable roles. Enforcing snake_case would mean renaming
+  # hundreds of established, working variables across every service.
+  - var-naming[pattern]
+
+  # Line length is owned by yamllint (line-length: warning, max 160) so it is
+  # reported once, there, instead of failing here too.
+  - yaml[line-length]
+
+  # site.yml is a pure orchestration file made of `- import_playbook:` entries.
+  # ansible-lint counts each import as an unnamed "play"; naming an import
+  # statement is not an Ansible idiom. The imported service plays ARE named.
+  - name[play]
+
+  # A handful of existing task names embed `{{ MOUNT_POINT }}` mid-string (the
+  # proxmox template build and one firewall task) so the rendered task name
+  # shows the path being acted on. Cosmetic; rewording is not in scope.
+  - name[template]
+
+  # proxmox-vm-template.yml uses Jinja in a `when:` on the unmount play. It is
+  # existing infrastructure logic that is intentionally excluded from site.yml;
+  # rewriting the conditional is a task-logic change, out of scope for this
+  # docs/lint phase. Revisit if/when that playbook is refactored.
+  - no-jinja-when
