@@ -2,7 +2,8 @@ dependencies: []
 galaxy_info:
   author: Saad Ali
   description: Setup nftables Firewall.
-  min_ansible_version: 8.1
+  license: MIT
+  min_ansible_version: "8.1"
   platforms:
   - name: Debian
     versions:
