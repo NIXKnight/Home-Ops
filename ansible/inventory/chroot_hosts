@@ -1,3 +1,0 @@
-# This is where we will mount everything that needs to be setup under chroot
-[chroot]
-/mnt
