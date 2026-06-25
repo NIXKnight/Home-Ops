@@ -1,0 +1,28 @@
+---
+# Top-level orchestration playbook for the full deployment set.
+#
+# Order rationale:
+#   1. setup_system   - base OS configuration (linux-common, motd) must run first.
+#   2. acme           - issue/renew TLS certificates that downstream services consume.
+#   3. firewall       - establish nftables rules before exposing any service.
+#   4. data-services  - PostgreSQL/Redis backend that other services depend on.
+#   5. kea            - DHCP, needs firewall + certs in place.
+#   6. pihole         - DNS sinkhole.
+#   7. powerdns       - authoritative/recursive DNS, depends on data-services (state).
+#   8. nginx          - reverse proxy fronting the services above, needs acme certs.
+#   9. authentik      - SSO/identity, depends on data-services and nginx.
+#  10. monitoring     - observability stack, deployed last so it can scrape everything.
+#
+# proxmox-vm-template.yml is intentionally excluded: it is infrastructure
+# provisioning (image build + template creation), run separately from the
+# service deployment lifecycle.
+- import_playbook: setup_system.yml
+- import_playbook: acme.yml
+- import_playbook: firewall.yml
+- import_playbook: data-services.yml
+- import_playbook: kea.yml
+- import_playbook: pihole.yml
+- import_playbook: powerdns.yml
+- import_playbook: nginx.yml
+- import_playbook: authentik.yml
+- import_playbook: monitoring.yml
