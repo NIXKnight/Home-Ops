@@ -4,8 +4,6 @@
   hosts: localhost
   gather_facts: yes
   become: True
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Set Mount Point Facts
       ansible.builtin.set_fact:
@@ -78,8 +76,6 @@
   hosts: chroot
   gather_facts: yes
   become: True
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Install Updates
       ansible.builtin.apt:
@@ -116,8 +112,8 @@
   hosts: localhost
   gather_facts: yes
   become: True
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
+  # vars_files:  # localhost play (no group auto-load) — uncomment / pass via -e when building a template
+  # - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Set Mount Point Facts
       ansible.builtin.set_fact:
@@ -150,8 +146,8 @@
   hosts: localhost
   gather_facts: false
   become: false
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/proxmox-nodes.yml"
+  # vars_files:  # localhost play (no group auto-load) — uncomment / pass via -e when building a template
+  # - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/proxmox-nodes.yml"
   tasks:
     - name: Add Proxmox Hosts
       ansible.builtin.add_host:
@@ -165,8 +161,6 @@
   hosts: proxmox
   gather_facts: false
   become: true
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Copy the Cloud Image to Remote Proxmox Node
       ansible.builtin.copy:

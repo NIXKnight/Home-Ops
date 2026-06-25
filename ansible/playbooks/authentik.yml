@@ -17,18 +17,10 @@
       DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ AUTHENTIK_SERVICE_MANIFEST }}"
 
 - name: Add/Update Authentik Users/Groups and Providers/Apps via OpenTofu
-  connection: local
-  hosts: localhost
+  hosts: authentik
+  run_once: true
   gather_facts: False
   become: False
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/all/main.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/all/config-authentik.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/all/secrets-acme.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/all/secrets-authentik.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/all/secrets-kea.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/monitoring/secrets.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/data_services/secrets.yml"
   roles:
     - role: opentofu
       OPENTOFU_MODULE_GIT_URL: "{{ AUTHENTIK_TOFU_MODULE_GIT_URL }}"
