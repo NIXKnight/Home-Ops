@@ -5,7 +5,7 @@
   gather_facts: yes
   become: True
   vars_files:
-  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Set Mount Point Facts
       ansible.builtin.set_fact:
@@ -79,7 +79,7 @@
   gather_facts: yes
   become: True
   vars_files:
-  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Install Updates
       ansible.builtin.apt:
@@ -117,7 +117,7 @@
   gather_facts: yes
   become: True
   vars_files:
-  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Set Mount Point Facts
       ansible.builtin.set_fact:
@@ -151,7 +151,7 @@
   gather_facts: false
   become: false
   vars_files:
-  - "../../Home-Ops-Internal/ansible/proxmox-nodes.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/proxmox-nodes.yml"
   tasks:
     - name: Add Proxmox Hosts
       ansible.builtin.add_host:
@@ -166,7 +166,7 @@
   gather_facts: false
   become: true
   vars_files:
-  - "{{ playbook_dir }}/extravars/proxmox_image/vars.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/proxmox/vm_template.yml"
   tasks:
     - name: Copy the Cloud Image to Remote Proxmox Node
       ansible.builtin.copy:

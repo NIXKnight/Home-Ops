@@ -1,0 +1,10 @@
+---
+- name: Setup/Update Firewall
+  hosts: firewall
+  gather_facts: yes
+  become: True
+  vars_files:
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/firewall.yml"
+  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
+  roles:
+    - firewall
