@@ -3,7 +3,5 @@
   hosts: acme
   gather_facts: yes
   become: True
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   roles:
     - acme

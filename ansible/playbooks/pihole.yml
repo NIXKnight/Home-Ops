@@ -5,11 +5,6 @@
   become: True
   collections:
     - nixknight.docker
-  vars_files:
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/inventories/group_vars/firewall.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/pi-hole.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
-  - "{{ ansible_config_file | dirname }}/../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
   roles:
     - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ PI_HOLE_SERVICE_NAME }}"
