@@ -1,14 +1,10 @@
 ---
 - name: Install/Upgrade PowerDNS
-  hosts: all
+  hosts: powerdns
   gather_facts: yes
   become: True
   collections:
     - nixknight.docker
-  vars_files:
-  - "{{ playbook_dir }}/extravars/powerdns.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/powerdns.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
   roles:
     - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ POWERDNS_SERVICE_NAME }}"
@@ -23,17 +19,10 @@
       DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ POWERDNS_SERVICE_MANIFEST }}"
 
 - name: Add/Update Local DNS Zone via OpenTofu
-  connection: local
-  hosts: localhost
+  hosts: powerdns
+  run_once: true
   gather_facts: False
   become: False
-  vars_files:
-  - "{{ playbook_dir }}/extravars/powerdns.yml"
-  - "{{ playbook_dir }}/extravars/common.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/powerdns.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
   roles:
     - role: opentofu
       OPENTOFU_MODULE_GIT_URL: "{{ PDNS_TOFU_MODULE_GIT_URL }}"

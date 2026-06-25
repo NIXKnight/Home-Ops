@@ -1,13 +1,10 @@
 ---
 - name: Install/Upgrade Authentik
-  hosts: all
+  hosts: authentik
   gather_facts: yes
   become: True
   collections:
     - nixknight.docker
-  vars_files:
-  - "{{ playbook_dir }}/extravars/authentik.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/authentik.yml"
   roles:
     - role: docker-compose-service
       DOCKER_COMPOSE_SERVICE_NAME: "{{ AUTHENTIK_SERVICE_NAME }}"
@@ -20,19 +17,10 @@
       DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ AUTHENTIK_SERVICE_MANIFEST }}"
 
 - name: Add/Update Authentik Users/Groups and Providers/Apps via OpenTofu
-  connection: local
-  hosts: localhost
+  hosts: authentik
+  run_once: true
   gather_facts: False
   become: False
-  vars_files:
-  - "{{ playbook_dir }}/extravars/common.yml"
-  - "{{ playbook_dir }}/extravars/authentik.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/acme.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/authentik.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/kea.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/monitoring.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/data-services.yml"
-  - "../../Home-Ops-Internal/ansible/Linux-Firewall-Gateway/jenkins.yml"
   roles:
     - role: opentofu
       OPENTOFU_MODULE_GIT_URL: "{{ AUTHENTIK_TOFU_MODULE_GIT_URL }}"

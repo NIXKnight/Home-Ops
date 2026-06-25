@@ -1,0 +1,7 @@
+---
+- name: Setup LetsEncrypt SSL Certificate
+  hosts: acme
+  gather_facts: yes
+  become: True
+  roles:
+    - acme

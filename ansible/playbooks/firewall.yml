@@ -1,0 +1,7 @@
+---
+- name: Setup/Update Firewall
+  hosts: firewall
+  gather_facts: yes
+  become: True
+  roles:
+    - firewall
