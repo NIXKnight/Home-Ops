@@ -4,12 +4,12 @@ include "root" {
 }
 
 locals {
-  module_source_url  = include.root.locals.common_vars.remote_modules.proxmox_vm.source
-  proxmox_vms_config = yamldecode(file("${get_repo_root()}/../Home-Ops-Internal/terragrunt/proxmox/vms_config.yaml"))
+  module_source_url = include.root.locals.common_vars.remote_modules.proxmox_vm.source
+  vms               = read_terragrunt_config("${include.root.locals.internal_repo_path}/terragrunt/proxmox/vms.hcl")
 }
 
 terraform {
   source = local.module_source_url
 }
 
-inputs = merge(local.proxmox_vms_config.module_vars)
+inputs = local.vms.locals.module_vars
