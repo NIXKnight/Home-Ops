@@ -13,5 +13,9 @@ locals {
     proxmox_vm = {
       source = "git::https://github.com/NIXKnight/OpenTofu-Module-Proxmox-VM.git?ref=38a11f4badff2feb81a14cefb65f5889227613a9"
     }
+
+    talos = {
+      source = "git::https://github.com/NIXKnight/OpenTofu-Module-Talos-Baremetal.git?ref=472efe19a3b5a83d571c85a8fc045fd14f0e4f09"
+    }
   }
 }
