@@ -1,0 +1,5 @@
+# Runtime dependencies for vault_auto_unseal.py (pinned).
+# requests bundles its own CA store via certifi (no system ca-certificates needed).
+# psycopg2-binary ships prebuilt manylinux wheels (no build toolchain needed).
+requests==2.32.3
+psycopg2-binary==2.9.10
