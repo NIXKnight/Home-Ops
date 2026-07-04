@@ -13,6 +13,9 @@ ansible/.ansible_vault_password
 terraform.tfstate
 terraform.tfstate.backup
 backend.tf
+# root.hcl generate block emits this into inline-.tf unit dirs (argocd, cilium-lb);
+# it embeds the live pg state conn string, so it must never be tracked.
+opentofu_state_backend.tf
 .envrc
 
 # Python toolchain noise
