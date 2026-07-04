@@ -15,7 +15,7 @@ locals {
     }
 
     talos = {
-      source = "git::https://github.com/NIXKnight/OpenTofu-Module-Talos-Baremetal.git?ref=07da338095cb11be2baee52c150029d26f5e2028"
+      source = "git::https://github.com/NIXKnight/OpenTofu-Module-Talos-Baremetal.git?ref=5ab2959e09e4e426d28fbf5c0f1308580d067984"
     }
   }
 }
