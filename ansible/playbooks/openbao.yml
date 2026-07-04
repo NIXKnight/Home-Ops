@@ -1,0 +1,72 @@
+---
+# OpenBao deployment — 2 nodes, PostgreSQL HA storage, per-node auto-unseal sidecar.
+#
+# TLS: OpenBao serves plain HTTP on its listener. TLS is terminated upstream by the
+# existing nginx reverse proxy (templates/nginx/openbao.conf.j2), which fronts the
+# single external HTTPS vhost that clients use. api_addr advertises that external
+# https URL even though this listener is http (standard TLS-terminating-proxy
+# pattern); OpenBao does not handle its own certificate.
+#
+# PostgreSQL provisioning (the openbao role + database, pgcrypto, the admin-owned
+# vault_init_data escrow table, and the least-privilege grants) is NOT done here.
+# It is applied by playbooks/manage_db_users.yml against the data_services group.
+#
+# Pre-tasks (this play): ensure the compose directory exists, then render the two
+# per-node secret env files (no_log) the containers consume — OPENBAO_ENV_FILE
+# (PGPASSWORD) and OPENBAO_UNSEAL_ENV_FILE (POSTGRES_PASSWORD + encryption key).
+# The docker-compose-service role then deploys the openbao + openbao-unseal
+# containers.
+#
+# SECURITY (binding): every task that touches a secret (PG password, encryption
+# key) sets no_log: true. No plaintext secret is written by this play into the
+# rendered docker-compose manifest — container secrets are delivered through 0600
+# root env_files rendered by the no_log tasks below, so the role's (non-no_log)
+# manifest template renders a secret-free compose file. The escrow table is
+# admin-owned; the openbao role gets only SELECT/INSERT on it (the daemon only
+# INSERTs/SELECTs, the export only SELECTs) — never UPDATE/DELETE/TRUNCATE.
+- name: Deploy OpenBao (PostgreSQL HA + auto-unseal sidecar)
+  hosts: openbao
+  gather_facts: true
+  become: true
+  collections:
+    - nixknight.docker
+  pre_tasks:
+    - name: Ensure the OpenBao compose directory exists (for secret env files)
+      ansible.builtin.file:
+        path: "{{ OPENBAO_SERVICE_COMPOSE_PATH }}"
+        state: directory
+        owner: root
+        group: root
+        mode: "0750"
+
+    - name: Render the OpenBao server secret env file (PGPASSWORD)
+      ansible.builtin.copy:
+        dest: "{{ OPENBAO_ENV_FILE }}"
+        content: "PGPASSWORD={{ OPENBAO_PG_PASSWORD }}\n"
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+
+    - name: Render the unseal sidecar secret env file (PG password + encryption key)
+      ansible.builtin.copy:
+        dest: "{{ OPENBAO_UNSEAL_ENV_FILE }}"
+        content: |
+          POSTGRES_PASSWORD={{ OPENBAO_PG_PASSWORD }}
+          POSTGRES_ENCRYPTION_KEY={{ POSTGRES_ENCRYPTION_KEY }}
+        owner: root
+        group: root
+        mode: "0600"
+      no_log: true
+  roles:
+    - role: docker-compose-service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ OPENBAO_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ OPENBAO_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ OPENBAO_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ OPENBAO_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ OPENBAO_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ OPENBAO_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ OPENBAO_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ OPENBAO_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ OPENBAO_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ OPENBAO_SERVICE_MANIFEST }}"

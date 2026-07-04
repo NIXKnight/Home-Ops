@@ -1,0 +1,30 @@
+# OpenBao server configuration (PostgreSQL HA storage backend).
+# Managed by Ansible (playbooks/openbao.yml + docker-compose-service role) — do not edit by hand.
+#
+# SECURITY: this file intentionally holds NO secret. The PostgreSQL password is
+# delivered to the container via the PGPASSWORD environment variable (honored by
+# OpenBao's pgx-based postgresql backend), so connection_url carries no credentials.
+#
+# TLS: the listener serves plain HTTP. TLS is terminated by the existing nginx
+# reverse proxy in front of OpenBao, so api_addr advertises the external https URL
+# (the nginx vhost) while this listener is http. The cluster port still uses
+# OpenBao's own internally-managed TLS for HA request forwarding, independent of the
+# listener's tls_disable — cluster_addr therefore keeps its https scheme.
+
+ui = true
+
+api_addr     = "{{ OPENBAO_API_ADDR }}"
+cluster_addr = "{{ OPENBAO_CLUSTER_ADDR }}"
+
+storage "postgresql" {
+  connection_url = "postgres://{{ OPENBAO_PG_USER }}@{{ OPENBAO_PG_HOST }}:{{ OPENBAO_PG_PORT }}/{{ OPENBAO_PG_DB }}?sslmode={{ OPENBAO_PG_SSLMODE }}"
+  ha_enabled     = "true"
+  ha_table       = "{{ OPENBAO_PG_HA_TABLE }}"
+  max_parallel   = "{{ OPENBAO_PG_MAX_PARALLEL }}"
+}
+
+listener "tcp" {
+  address         = "0.0.0.0:{{ OPENBAO_API_PORT }}"
+  cluster_address = "0.0.0.0:{{ OPENBAO_CLUSTER_PORT }}"
+  tls_disable     = true
+}

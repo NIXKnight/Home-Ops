@@ -1,0 +1,29 @@
+# OpenBao HTTPS vhost. nginx terminates TLS (wildcard cert from the top-level conf);
+# OpenBao itself serves plain HTTP on OPENBAO_API_PORT. Both HA nodes are listed in
+# the upstream — an OpenBao standby transparently forwards API requests to the active
+# node over the cluster port, so round-robin across the nodes is safe.
+upstream openbao {
+{% for host in groups['openbao'] %}
+  server {{ hostvars[host].ansible_host }}:{{ OPENBAO_API_PORT }};
+{% endfor %}
+}
+
+server {
+  listen 80;
+  listen [::]:80;
+  server_name {{ OPENBAO_EXTERNAL_FQDN }};
+  return 301 https://$host$request_uri;
+}
+server {
+  listen 443 ssl;
+  listen [::]:443 ssl;
+  server_name {{ OPENBAO_EXTERNAL_FQDN }};
+
+  location / {
+    proxy_pass http://openbao;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
