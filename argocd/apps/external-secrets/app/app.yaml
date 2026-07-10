@@ -1,0 +1,49 @@
+---
+# Application: external-secrets (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype. Environment-agnostic: the chart version, the private git
+# source repoURL, and the concrete $values path are PLACEHOLDERs, pinned/injected
+# by the private Tier 2 overlay. The public repo never names the private config
+# repo. The cascade finalizer is added by the Tier 3 aggregator, not declared here.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-secrets
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://charts.external-secrets.io
+      chart: external-secrets
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: external-secrets
+        valueFiles:
+          - $values/argocd/apps/external-secrets/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-secrets
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply avoids the client-side last-applied annotation limit on
+      # the ESO CRDs the chart installs.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
