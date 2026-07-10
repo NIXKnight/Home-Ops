@@ -1,0 +1,67 @@
+---
+# Application: external-dns-private (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the env-specific
+# ExternalSecret (PowerDNS API key) lives in the private repo at
+# argocd/apps/external-dns-private/environments/<env>/manifests/. The chart
+# version, the $values path, and the manifests path are PLACEHOLDERs pinned by
+# the private Tier 2 overlay; the private git-source repoURLs are injected there
+# too. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# The `-private` suffix marks this as the LAN split-horizon publisher (records
+# into the on-network PowerDNS); a public-DNS twin may be added later.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: external-dns-private
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships an ExternalSecret (PowerDNS API key) under selfHeal; ESO writes
+  # these remoteRef defaults back, and ArgoCD would otherwise fight it every reconcile.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/external-dns
+      chart: external-dns
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: external-dns-private
+        valueFiles:
+          - $values/argocd/apps/external-dns-private/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the PowerDNS API-key ExternalSecret) from the
+    # private config repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/external-dns-private/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: external-dns-private
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply for parity with the other platform Tier 1s.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
