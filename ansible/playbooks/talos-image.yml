@@ -1,0 +1,51 @@
+---
+# Build Talos Linux bare-metal boot media (per-node-class ISO / PXE assets) with
+# the nixknight.kubernetes.talos-baremetal-image role.
+#
+# This is a BUILD / PROVISIONING playbook (like proxmox-vm-template.yml) and is
+# deliberately NOT imported by site.yml: it produces image artifacts on a build
+# host, it is not part of the service-deployment lifecycle.
+#
+# Host target: localhost / connection: local. The role writes its outputs to the
+# host it runs on (TBI_OUTPUT_DIR is playbook_dir-relative by default), so a
+# build host — here the Ansible controller — is the correct target. No managed
+# inventory host is contacted.
+#
+# Backends:
+#   * factory (default) — calls the Talos Image Factory HTTP API; needs only
+#     outbound HTTPS from this host. No local container tooling.
+#   * imager            — offline builds via the siderolabs/imager container;
+#     requires a working Docker CLI on THIS host, and is privileged for `raw`.
+#
+# become: not set here. The core build (schematic render, asset download,
+# manifest) writes into a user-owned TBI_OUTPUT_DIR and needs no privilege. The
+# OPTIONAL, default-OFF USB-write path runs `dd` as root — enable it only with a
+# privileged build invocation, passing the TBI_USB_* overrides via extra-vars.
+#
+# Inputs: the role ships working defaults for everything (no strictly-required
+# vars). Override any variable at run time with `-e 'VAR=value'`, or supply a
+# whole file of overrides with `-e @<vars-file>` — this covers the Talos
+# version, build backend, output dir, the per-node-class image profiles, and the
+# USB-write knobs. Nothing here is secret.
+#
+# Examples:
+#   # Build the role's default profiles via the Factory:
+#   ansible-playbook playbooks/talos-image.yml -i 'localhost,' -c local
+#
+#   # Offline build via the imager (Docker required on this host):
+#   ansible-playbook playbooks/talos-image.yml -i 'localhost,' -c local \
+#     -e 'TBI_BUILD_BACKEND=imager'
+#
+#   # Supply a full set of overrides from a vars file:
+#   ansible-playbook playbooks/talos-image.yml -i 'localhost,' -c local \
+#     -e @<vars-file>
+
+- name: Build Talos Bare-Metal Boot Media
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: true
+  collections:
+    - nixknight.kubernetes
+  roles:
+    - role: talos-baremetal-image

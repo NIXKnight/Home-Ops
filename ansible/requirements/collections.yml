@@ -11,3 +11,7 @@ collections:
   - name: nixknight.general
     type: git
     source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/general,6e9e1fc2f2dff6e26cca744727df3a067c508be5"
+  - name: nixknight.kubernetes
+    type: git
+    source: "git+https://github.com/NIXKnight/Ansible-Collections.git#/collections/nixknight/kubernetes"
+    version: "NIXKnight/talos-baremetal-image"
