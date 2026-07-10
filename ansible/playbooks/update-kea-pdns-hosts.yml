@@ -1,0 +1,64 @@
+---
+# Update Kea DHCP host reservations AND the PowerDNS local DNS zone in one pass.
+#
+# This is an ON-DEMAND sync utility (like manage_db_users.yml), NOT part of the
+# deploy lifecycle, so it is intentionally NOT imported by site.yml. Run it after
+# editing host data (Kea reservations in group_vars/kea/* and the matching DNS
+# records in group_vars/all/config-powerdns.yml) to push both at once.
+#
+# It does two things, mirroring the per-service playbooks:
+#   1. Redeploy the Kea container (docker-compose-service) so Kea re-renders its
+#      config from KEA_DHCP4/6_HOST_RESERVATIONS + subnets (same as kea.yml).
+#   2. Re-apply the PowerDNS OpenTofu module (opentofu role) so the authoritative
+#      zone reflects PDNS_COMBINED_RECORDS / PDNS_STATIC_RECORDS (same as
+#      powerdns.yml play 2).
+# It is a data-level sync (one host list drives both Kea reservations and PDNS
+# records); it is NOT a live Kea-lease -> PDNS-API reconciler.
+#
+# Vars now AUTO-LOAD from the external inventory group_vars by group membership;
+# the old vars_files / extravars includes are gone:
+#   * Play 1 hosts: kea  -> auto-loads group_vars/kea/* (KEA_SERVICE_*,
+#     KEA_COMPOSE_*, KEA_DHCP4/6_*) plus group_vars/all/* (KEA_* subnet/
+#     reservation data and secrets-kea live under all/).
+#   * Play 2 hosts: powerdns + run_once -> auto-loads group_vars/all/* which
+#     holds PDNS_TOFU_* (config-powerdns.yml), OPENTOFU_STATE_DB_* and the PDNS
+#     API/DB secrets (secrets-powerdns.yml). No play-local vars_files needed.
+
+- name: Update Kea DHCP Configuration for Host Reservations
+  hosts: kea
+  gather_facts: true
+  become: true
+  collections:
+    - nixknight.docker
+  roles:
+    - role: docker-compose-service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ KEA_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ KEA_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ KEA_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ KEA_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ KEA_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ KEA_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ KEA_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ KEA_SERVICE_MANIFEST }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ KEA_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ KEA_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_ADDITIONAL_PATHS: "{{ KEA_COMPOSE_SERVICE_ADDITIONAL_PATHS }}"
+
+- name: Add/Update Local DNS Zone via OpenTofu
+  connection: local
+  hosts: localhost
+  run_once: true
+  gather_facts: false
+  become: false
+  roles:
+    - role: opentofu
+      OPENTOFU_MODULE_GIT_URL: "{{ PDNS_TOFU_MODULE_GIT_URL }}"
+      OPENTOFU_MODULE_VERSION: "{{ PDNS_TOFU_MODULE_VERSION }}"
+      OPENTOFU_MODULE_CONFIG_FILE_DST: "{{ PDNS_TOFU_MODULE_CONFIG_FILE_DEST }}"
+      OPENTOFU_PROJECT_PATH: "{{ PDNS_TOFU_PROJECT_PATH }}"
+      OPENTOFU_STATE_DB_SCHEMA_NAME: "{{ PDNS_TOFU_STATE_DB_SCHEMA_NAME }}"
+      OPENTOFU_MODULE_CONFIG: "{{ PDNS_TOFU_MODULE_CONFIG }}"
+      # NOTE: OEPNTOFU_ENV is the variable name the opentofu role expects
+      # (misspelled upstream); powerdns.yml uses the same spelling. Kept as-is
+      # to match the role contract — do not "fix" without changing the role.
+      OEPNTOFU_ENV: "{{ PDNS_TOFU_ENV }}"
