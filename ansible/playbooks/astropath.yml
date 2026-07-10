@@ -1,0 +1,44 @@
+---
+# astropath-dns-relay — ACME DNS-01 RFC2136/TSIG relay for cert-manager.
+#
+# Deploys the fw-astropath docker-compose stack on the gateway host via the
+# docker-compose-service role, following the OpenBao donor pattern.
+#
+# FILE MANAGEMENT IS ROLE-NATIVE. The role renders the secret env file
+# (ASTROPATH_COMPOSE_SERVICE_TEMPLATES, item no_log: true), which feeds the
+# role's own change-detection (create_update_service.yml:94-113), so a secret
+# rotation re-renders the env file AND restarts the service — the play-side env
+# render this refactor removed silently bypassed that restart.
+#
+# NETWORKING (D1): network_mode: host. RFC2136 listener binds 0.0.0.0:5301
+# (udp+tcp); the FastAPI plane binds 127.0.0.1:8080 behind the nginx vhost
+# (astropath.<domain>). Postgres is the co-located data_services instance over
+# 127.0.0.1:5432 (the DSN embeds that address).
+#
+# SCHEMA MIGRATION IS A COMPOSE INIT SERVICE. The manifest's `astropath-migrate`
+# one-shot runs `alembic upgrade head` before the main service (depends_on
+# service_completed_successfully). Because the systemd unit does down->up on every
+# start, the schema is reconciled idempotently on every start/reboot — not only on
+# play runs. The image entrypoint only CHECKS the head and fail-fasts otherwise.
+#
+# The RFC2136 port firewall opening (5301, source-restricted) lives in Internal
+# config-firewall.yml and is applied by playbooks/firewall.yml — NOT here.
+- name: Deploy astropath-dns-relay (RFC2136/TSIG ACME DNS-01 relay)
+  hosts: astropath
+  gather_facts: true
+  become: true
+  collections:
+    - nixknight.docker
+  roles:
+    - role: docker-compose-service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ ASTROPATH_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ ASTROPATH_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ ASTROPATH_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ ASTROPATH_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ ASTROPATH_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ ASTROPATH_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ ASTROPATH_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ ASTROPATH_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ ASTROPATH_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ ASTROPATH_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ ASTROPATH_SERVICE_MANIFEST }}"
