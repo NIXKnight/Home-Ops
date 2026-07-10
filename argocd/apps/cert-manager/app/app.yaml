@@ -1,0 +1,64 @@
+---
+# Application: cert-manager (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: env-specific raw CRs
+# (the ClusterIssuers + their backing ExternalSecrets) live in the private repo
+# at argocd/apps/cert-manager/environments/<env>/manifests/. The chart version,
+# the $values path, and the manifests path are PLACEHOLDERs pinned by the
+# private Tier 2 overlay. The cascade finalizer is added by the Tier 3 aggregator.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cert-manager
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships 2 ExternalSecrets under selfHeal; ESO writes these remoteRef
+  # defaults back, and ArgoCD would otherwise fight it every reconcile.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    - repoURL: https://charts.jetstack.io
+      chart: cert-manager
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: cert-manager
+        valueFiles:
+          - $values/argocd/apps/cert-manager/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (ClusterIssuers + ExternalSecrets) from the
+    # private config repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/cert-manager/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cert-manager
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply avoids the client-side last-applied annotation limit on
+      # cert-manager's large CRDs.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
