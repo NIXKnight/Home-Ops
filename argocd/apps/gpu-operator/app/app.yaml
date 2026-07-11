@@ -1,0 +1,78 @@
+---
+# Application: gpu-operator (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, TWO sources (no manifests source): the chart version,
+# the private git source repoURL, and the concrete $values path are PLACEHOLDERs,
+# pinned/injected by the private Tier 2 overlay. The public repo never names the
+# private config repo. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# NVIDIA GPU Operator for the cluster's GPU worker node (2x RTX 3090). Talos ships
+# the NVIDIA driver AND the container toolkit as system extensions, so the
+# operator must NOT install or manage them: the Tier 2 values set
+# driver.enabled=false and toolkit.enabled=false, and repoint
+# hostPaths.driverInstallDir at Talos's /usr/local driver root (the chart default
+# /run/nvidia/driver is where the operator would install its own driver).
+#
+# RuntimeClass ownership: the operator still creates and reconciles the `nvidia`
+# RuntimeClass itself, via its always-on "pre-requisites" state, which is gated
+# only on the CDI NRI plugin (off by default) and is INDEPENDENT of
+# toolkit.enabled. The class name/handler both resolve to operator.runtimeClass
+# (default `nvidia`), matching the containerd runtime handler the Talos toolkit
+# extension registers. This app therefore ships NO RuntimeClass manifest -- a
+# duplicate would fight the operator's per-reconcile Update loop (the operator
+# also sets an ownerReference on the object).
+#
+# The device-plugin, driver-validation and other operand pods run privileged, so
+# the auto-created gpu-operator namespace is labeled Pod-Security
+# enforce=privileged via managedNamespaceMetadata below.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: gpu-operator
+  namespace: argocd
+  annotations:
+    # Wave 1: platform node-hardware enablement, parity with zfs-localpv. Installs
+    # its own ClusterPolicy + NVIDIADriver CRDs and bundles node-feature-discovery,
+    # with no dependency on ESO (wave 0), cert-manager or the wave-2 ingress/DNS apps.
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://helm.ngc.nvidia.com/nvidia
+      chart: gpu-operator
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: gpu-operator
+        valueFiles:
+          - $values/argocd/apps/gpu-operator/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: gpu-operator
+  syncPolicy:
+    # The device-plugin / validator / operand pods run privileged; label the
+    # auto-created gpu-operator namespace so Pod Security admission (enforce)
+    # permits them. Nests under syncPolicy per the ArgoCD v3.4 Application schema.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply for the large ClusterPolicy + NVIDIADriver CRDs the chart
+      # installs (client-side apply would exceed the last-applied annotation limit).
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
