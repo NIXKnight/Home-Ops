@@ -27,6 +27,24 @@ metadata:
     deploymentStrategy: helm-direct
 spec:
   project: infrastructure
+  # The StatefulSet's volumeClaimTemplates carry TypeMeta (apiVersion/kind) and a
+  # status subresource written by the API server, and the API server also defaults
+  # spec.persistentVolumeClaimRetentionPolicy to Retain/Retain -- none of which the
+  # chart renders. Under ArgoCD's client-side diff these show as perpetual, purely
+  # cosmetic StatefulSet drift (OutOfSync while Healthy). Ignore just those exact
+  # apiserver-owned paths. (volumeMode is NOT ignored here -- it is pinned in the
+  # private values so desired == live.) ignoreDifferences affects diff calc only,
+  # which clears the OutOfSync state; no RespectIgnoreDifferences is needed (once
+  # Synced no sync runs, and these fields are immutable / apiserver-redefaulted
+  # anyway) -- matching the cert-manager Tier 1 precedent.
+  ignoreDifferences:
+    - group: apps
+      kind: StatefulSet
+      jqPathExpressions:
+        - .spec.volumeClaimTemplates[].apiVersion
+        - .spec.volumeClaimTemplates[].kind
+        - .spec.volumeClaimTemplates[].status
+        - .spec.persistentVolumeClaimRetentionPolicy
   sources:
     - repoURL: https://grafana.github.io/helm-charts
       chart: alloy
