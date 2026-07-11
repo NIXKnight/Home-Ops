@@ -70,18 +70,3 @@ variable "eso_audience" {
   description = "JWT audience the ESO role requires. MUST stay lockstep with the ClusterSecretStore audiences (\"openbao\")."
   type        = string
 }
-
-variable "eso_allowed_paths" {
-  description = "KV subtree prefixes (each a top-level path under the ESO mount, e.g. the cluster prefix) the ESO policy grants read on. Passed through from the Internal unit's eso_read_prefixes; a bare cluster prefix grants the whole in-cluster subtree."
-  type        = list(string)
-
-  validation {
-    # Entries are interpolated into policy paths as <mount>/data/<E>/* -- a leading
-    # or trailing slash (or empty entry) would yield a malformed or over-broad path.
-    condition = alltrue([
-      for e in var.eso_allowed_paths :
-      length(e) > 0 && !startswith(e, "/") && !endswith(e, "/")
-    ])
-    error_message = "eso_allowed_paths entries must be non-empty and contain no leading or trailing slashes."
-  }
-}

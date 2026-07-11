@@ -4,9 +4,9 @@ include "root" {
 }
 
 locals {
-  # KV unit config (engine mounts, ESO read subtrees, policy/role/SA names, audience)
-  # lives in the Internal repo as HCL -- same mechanism the kubernetes-auth and argocd
-  # units use. internal_repo_path is exposed by root.hcl from TERRAGRUNT_INTERNAL_REPO_PATH.
+  # KV unit config (engine mounts, ESO mount, policy/role/SA names, audience) lives in the
+  # Internal repo as HCL -- same mechanism the kubernetes-auth and argocd units use.
+  # internal_repo_path is exposed by root.hcl from TERRAGRUNT_INTERNAL_REPO_PATH.
   kv = read_terragrunt_config("${include.root.locals.internal_repo_path}/terragrunt/openbao/kv/unit.hcl")
 
   # auth_path is single-sourced from the sibling kubernetes-auth unit's config so the
@@ -37,9 +37,4 @@ inputs = {
   eso_sa_name      = local.kv.locals.openbao_kv.eso_sa_name
   eso_sa_namespace = local.kv.locals.openbao_kv.eso_sa_namespace
   eso_audience     = local.kv.locals.openbao_kv.eso_audience
-
-  # Subtree prefixes ESO may read, passed straight through. Each entry E is rendered by
-  # the policy as data-read + metadata-read/list grants on "<E>/*" (e.g. <cluster> ->
-  # kv/data/<cluster>/*), so a bare cluster prefix grants the whole in-cluster subtree.
-  eso_allowed_paths = local.kv.locals.openbao_kv.eso_read_prefixes
 }
