@@ -1,0 +1,64 @@
+---
+# Application: zfs-localpv (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the StorageClasses live
+# in the private repo at argocd/apps/zfs-localpv/environments/<env>/manifests/.
+# The chart version, the $values path, and the manifests path are PLACEHOLDERs
+# pinned by the private Tier 2 overlay; the private git-source repoURLs are
+# injected there too. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# OpenEBS ZFS-LocalPV: CSI driver serving the monitoring node's mirrored NVMe ZFS
+# pool. The node plugin DaemonSet is privileged, so the openebs namespace is
+# labeled Pod-Security enforce=privileged via managedNamespaceMetadata below.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: zfs-localpv
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://openebs.github.io/zfs-localpv
+      chart: zfs-localpv
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: zfs-localpv
+        valueFiles:
+          - $values/argocd/apps/zfs-localpv/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the StorageClasses) from the private config
+    # repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/zfs-localpv/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: openebs
+  syncPolicy:
+    # The node DaemonSet runs privileged; label the auto-created openebs namespace
+    # so Pod Security admission (enforce) permits it. Nests under syncPolicy per
+    # the ArgoCD v3.4 Application schema.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply for the large CSI + ZFS CRDs the chart installs.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

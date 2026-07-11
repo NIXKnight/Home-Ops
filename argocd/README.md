@@ -79,6 +79,7 @@ sources.
 | `-1` | AppProject `infrastructure` |
 | `0`  | `external-secrets` (ESO chart + ClusterSecretStore/CRB via chart `extraObjects`) |
 | `1`  | `cert-manager` |
+| `1`  | `zfs-localpv` (OpenEBS ZFS-LocalPV CSI + StorageClasses for the monitoring node) |
 | `2`  | `traefik` (its Certificate needs cert-manager's CRDs + a ready ClusterIssuer) |
 | `2`  | `external-dns-private` (publishes cluster Ingress hosts to the on-network DNS; needs ESO wave 0 for its API-key Secret) |
 
