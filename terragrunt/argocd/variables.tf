@@ -21,9 +21,25 @@ variable "kube_client_key" {
   sensitive   = true
 }
 
+variable "kube_config_raw" {
+  description = "Raw admin kubeconfig (YAML) from the Talos cluster unit's `kubeconfig` output, for the kbst kustomization provider that applies the post-release bootstrap CRs."
+  type        = string
+  sensitive   = true
+}
+
 variable "argocd_chart_version" {
   description = "Pinned version of the argo-cd Helm chart (argoproj/argo-helm)."
   type        = string
+}
+
+variable "argocd_bootstrap_project" {
+  description = "Bootstrap AppProject manifest (argoproj.io/v1alpha1), applied after the ArgoCD release via kbst. Sourced from the Internal unit.hcl (local.argocd_bootstrap_project)."
+  type        = any
+}
+
+variable "argocd_root_application" {
+  description = "Root app-of-apps Application manifest (argoproj.io/v1alpha1, project=bootstrap), applied after the bootstrap AppProject via kbst. Sourced from the Internal unit.hcl (local.argocd_root_application)."
+  type        = any
 }
 
 variable "argocd_namespace" {

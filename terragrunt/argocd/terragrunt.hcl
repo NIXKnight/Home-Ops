@@ -13,9 +13,10 @@ locals {
 }
 
 # Wire the live Kubernetes API connection details from the Talos cluster unit.
-# kubeconfig_data carries already base64-DECODED PEM strings (host + CA + client
-# cert/key), so they pass straight to the helm provider's kubernetes block.
-# mock_outputs cover offline init/validate/plan; they are dummy values only.
+# kubeconfig_data carries already base64-DECODED PEM strings (host + CA + client cert/key)
+# for the helm/kubernetes providers; kubeconfig is the RAW admin kubeconfig YAML for the
+# kbst kustomization provider (post-release bootstrap CRs). mock_outputs cover offline
+# init/validate/plan; they are dummy values only.
 dependency "talos_cluster" {
   config_path = "../talos-cluster"
 
@@ -27,6 +28,7 @@ dependency "talos_cluster" {
       client_certificate     = "mock"
       client_key             = "mock"
     }
+    kubeconfig = "mock"
   }
 }
 
@@ -35,6 +37,9 @@ inputs = {
   kube_ca          = dependency.talos_cluster.outputs.kubeconfig_data.cluster_ca_certificate
   kube_client_cert = dependency.talos_cluster.outputs.kubeconfig_data.client_certificate
   kube_client_key  = dependency.talos_cluster.outputs.kubeconfig_data.client_key
+
+  # Raw admin kubeconfig for the kbst kustomization provider (post-release bootstrap CRs).
+  kube_config_raw = dependency.talos_cluster.outputs.kubeconfig
 
   argocd_chart_version = "10.0.0"
 
@@ -46,6 +51,12 @@ inputs = {
   argocd_repo_url  = local.argocd.locals.argocd_repo_url
 
   # Rendered from the Internal repo's HCL unit (local.argocd above) to the YAML string
-  # main.tf still expects. The module (var/main.tf) is unchanged.
+  # main.tf still expects. extraObjects has been removed from these values; the two
+  # bootstrap CRs are now passed as the maps below and applied post-release via kbst.
   argocd_values = yamlencode(local.argocd.locals.argocd_values)
+
+  # Bootstrap argoproj.io objects, applied AFTER the release by kustomization_resource
+  # (main.tf). Sourced verbatim from the Internal unit.hcl locals.
+  argocd_bootstrap_project = local.argocd.locals.argocd_bootstrap_project
+  argocd_root_application  = local.argocd.locals.argocd_root_application
 }

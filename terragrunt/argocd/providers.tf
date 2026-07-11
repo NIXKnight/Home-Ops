@@ -25,3 +25,14 @@ provider "kubernetes" {
 provider "github" {
   owner = var.github_owner
 }
+
+# kbst kustomization provider (LIVE) -- applies ONLY the two post-release argoproj.io
+# bootstrap CRs (kustomization_resource.bootstrap_project / .root_application in main.tf),
+# which cannot ride the helm release because helm validates CRs against cluster discovery
+# before its own CRDs install. Takes the RAW admin kubeconfig from the talos-cluster
+# dependency (var.kube_config_raw). These are single-manifest JSON resources -- the provider
+# runs NO helmCharts generator, so no `helm` binary is required. Mirrors the talos-cluster
+# unit's kustomization provider block (kbst/kustomization ~> 0.9).
+provider "kustomization" {
+  kubeconfig_raw = var.kube_config_raw
+}

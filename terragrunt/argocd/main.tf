@@ -64,3 +64,28 @@ resource "kubernetes_secret" "repo_internal_config" {
 
   depends_on = [helm_release.argocd]
 }
+
+# --- Bootstrap argoproj.io objects, applied AFTER the release via kbst ---------------
+#
+# The AppProject + root app-of-apps used to ride the helm release as chart extraObjects,
+# but the argo-cd chart templates its CRDs as ordinary manifests, so helm's pre-install
+# manifest build validates these two argoproj.io CRs against cluster discovery BEFORE the
+# chart installs its own CRDs -> "no matches for kind ... ensure CRDs are installed first"
+# -> atomic abort (first-apply failure, apply log 2026-07-11). Applying them as separate
+# kbst kustomization_resource objects AFTER helm_release.argocd sidesteps the gate: by then
+# the CRDs are registered. manifest is jsonencode() of the Internal-sourced maps (fully
+# known at plan; no helm binary, no plan-time network). Mirrors the talos-cluster unit's
+# Cilium L2 CR pattern.
+resource "kustomization_resource" "bootstrap_project" {
+  manifest = jsonencode(var.argocd_bootstrap_project)
+
+  depends_on = [helm_release.argocd]
+}
+
+# Root Application strictly AFTER the AppProject it references (spec.project = "bootstrap").
+# ArgoCD tolerates a transient "project not found", but ordering avoids the reconcile churn.
+resource "kustomization_resource" "root_application" {
+  manifest = jsonencode(var.argocd_root_application)
+
+  depends_on = [kustomization_resource.bootstrap_project]
+}
