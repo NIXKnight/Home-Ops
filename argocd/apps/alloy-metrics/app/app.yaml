@@ -1,0 +1,65 @@
+---
+# Application: alloy-metrics (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, 2-source (chart + $values ref). No manifests source:
+# ALL config -- including the Alloy River pipeline -- rides in the private
+# values.yaml, so there are no env-specific raw CRs to ship. The chart version,
+# the private git source repoURL, and the concrete $values path are PLACEHOLDERs,
+# pinned/injected by the private Tier 2 overlay. The public repo never names the
+# private config repo. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# alloy-metrics: the cluster's SOLE Prometheus-pipeline metrics collector AND the
+# singleton Kubernetes-events shipper. Single-replica StatefulSet (WAL on a PVC),
+# clustering disabled. It scrapes apiserver (via EndpointSlice), kubelet, cAdvisor,
+# coredns, kube-state-metrics, node-exporter, annotated pods and itself, then
+# remote-writes to the in-cluster Prometheus store. The events pipeline is folded
+# in HERE (not the alloy-logs DaemonSet) because loki.source.kubernetes_events
+# tails the API directly and cannot be target-sharded; a DaemonSet would ship
+# every event once per node. A single-replica controller ships each event once.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy-metrics
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: alloy
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: alloy-metrics
+        valueFiles:
+          - $values/argocd/apps/alloy-metrics/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    # Plain CreateNamespace: the sibling prometheus app (sync-wave 3) owns the
+    # monitoring namespace and stamps its Pod-Security enforce=privileged label +
+    # the observability-critical PriorityClass BEFORE this wave-4 app syncs, so no
+    # managedNamespaceMetadata is declared here (it would fight prometheus).
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply: the River ConfigMap (full scrape suite) is large; SSA
+      # avoids the client-side last-applied annotation size limit, and the chart
+      # ships a CRD (podlogs.monitoring.grafana.com) that SSA handles cleanly.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

@@ -82,6 +82,12 @@ sources.
 | `1`  | `zfs-localpv` (OpenEBS ZFS-LocalPV CSI + StorageClasses for the monitoring node) |
 | `2`  | `traefik` (its Certificate needs cert-manager's CRDs + a ready ClusterIssuer) |
 | `2`  | `external-dns-private` (publishes cluster Ingress hosts to the on-network DNS; needs ESO wave 0 for its API-key Secret) |
+| `3`  | `prometheus` (metrics store: long-retention TSDB + remote-write receiver + platform alert rules; sole owner of the monitoring namespace metadata and the `observability-critical` PriorityClass the wave-4 apps consume) |
+| `4`  | `loki` (log store on the monitoring node; consumes the wave-3 namespace + PriorityClass) |
+| `4`  | `grafana` (dashboards + alerting UI over Prometheus and Loki) |
+| `4`  | `alloy-metrics` (sole metrics collector: scrapes targets and remote-writes to Prometheus) |
+| `4`  | `alloy-logs` (node log collector; rides the wave-3 privileged-PSA namespace label) |
+| `4`  | `metrics-server` (serves the Metrics API for `kubectl top` / HPA from the control-plane nodes) |
 
 Cross-Application wave gating -- one Application waiting for an earlier one to be
 Healthy before the next wave starts -- relies on the ArgoCD Application health

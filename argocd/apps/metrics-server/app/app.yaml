@@ -1,0 +1,61 @@
+---
+# Application: metrics-server (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, no manifests source: the chart version, the private git
+# source repoURL, and the concrete $values path are PLACEHOLDERs, pinned/injected
+# by the private Tier 2 overlay. The public repo never names the private config
+# repo. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# Kubernetes Metrics Server: serves the Metrics API (v1beta1.metrics.k8s.io) for
+# `kubectl top` and HPA/VPA. A control-plane platform component, NOT a
+# monitoring-node workload -- the private values pin it to the control-plane
+# nodes. It deploys into the `monitoring` namespace (not kube-system) so the
+# infrastructure AppProject's namespace allowlist stays tight; its APIService is
+# cluster-scoped and namespace-agnostic. It reuses the observability-critical
+# PriorityClass created by the prometheus app (wave 3), hence this app's wave 4.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: metrics-server
+  namespace: argocd
+  annotations:
+    # Wave 4: the observability-critical PriorityClass (owned by prometheus,
+    # wave 3) must exist before this pod references it.
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://kubernetes-sigs.github.io/metrics-server
+      chart: metrics-server
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: metrics-server
+        valueFiles:
+          - $values/argocd/apps/metrics-server/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    # Plain CreateNamespace (NO managedNamespaceMetadata): the prometheus app is
+    # the sole owner of the monitoring namespace metadata. metrics-server's pod
+    # runs read-only-rootfs / non-root (chart default securityContext) and needs
+    # no privileged PSA relaxation.
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

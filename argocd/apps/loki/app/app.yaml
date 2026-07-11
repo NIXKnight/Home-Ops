@@ -1,0 +1,59 @@
+---
+# Application: loki (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, 2-source (chart + $values ref) -- no manifests source
+# (cf. external-secrets). Environment-agnostic: the chart version, the private git
+# $values source repoURL, and the concrete $values path are PLACEHOLDERs pinned/
+# injected by the private Tier 2 overlay. The public repo never names the private
+# config repo. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# Single-tenant log store, right-sized for the one monitoring-worker node
+# (SingleBinary, filesystem storage). No object-store creds and no env CRs, so
+# there is no ExternalSecret and no third (manifests) source.
+#
+# NAMESPACE: shares `monitoring` with the prometheus app (sync-wave 3), which
+# creates the namespace WITH the pod-security label + the observability-critical
+# PriorityClass this app's pod references. This app runs at wave 4 (after it), so
+# plain CreateNamespace=true is only a harmless fallback -- managedNamespaceMetadata
+# is deliberately NOT set (prometheus owns the namespace labels).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: loki
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: loki
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: loki
+        valueFiles:
+          - $values/argocd/apps/loki/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply for parity with the other platform Tier 1s.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

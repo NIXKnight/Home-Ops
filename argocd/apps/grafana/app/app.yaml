@@ -1,0 +1,78 @@
+---
+# Application: grafana (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the grafana-operator
+# chart installs the controller + CRDs; the env-specific Grafana instance,
+# datasources, folder, and the admin-credential ExternalSecret live in the private
+# repo at argocd/apps/grafana/environments/<env>/manifests/. The chart version,
+# the $values path, and the manifests path are PLACEHOLDERs pinned by the private
+# Tier 2 overlay; the private git-source repoURLs are injected there too. The
+# cascade finalizer is added by the Tier 3 aggregator.
+#
+# CHART SOURCE = OCI. grafana-operator ships ONLY as an OCI Helm chart. ArgoCD
+# consumes a public OCI chart with the OCI registry as repoURL WITHOUT the oci://
+# scheme and the chart name in `chart` (ref: argo-cd user-guide/helm.md). ghcr is
+# public/anonymous, so NO pre-created ArgoCD Repository secret is required -- a
+# Repository secret (enableOCI:true) is only needed for auth/TLS-gated registries.
+#
+# NAMESPACE: shares `monitoring` with the prometheus app (sync-wave 3), which
+# creates the namespace WITH the pod-security label + observability-critical
+# PriorityClass. This app runs at wave 4 (after it), so plain CreateNamespace=true
+# is only a harmless fallback -- managedNamespaceMetadata is deliberately NOT set.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: grafana
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships an ExternalSecret (Grafana admin creds) under selfHeal; ESO
+  # writes these remoteRef defaults back, and ArgoCD would otherwise fight it
+  # every reconcile.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    - repoURL: ghcr.io/grafana/helm-charts
+      chart: grafana-operator
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: grafana-operator
+        valueFiles:
+          - $values/argocd/apps/grafana/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (Grafana CR + datasources + folder + the admin
+    # ExternalSecret) from the private config repo (repoURL injected by Tier 2).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/grafana/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply avoids the client-side last-applied annotation limit on
+      # the grafana-operator CRDs the chart bundles.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

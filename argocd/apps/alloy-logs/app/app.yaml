@@ -1,0 +1,62 @@
+---
+# Application: alloy-logs (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, 2-source (chart + $values ref). No manifests source:
+# ALL config -- including the Alloy River pipeline -- rides in the private
+# values.yaml, so there are no env-specific raw CRs to ship. The chart version,
+# the private git source repoURL, and the concrete $values path are PLACEHOLDERs,
+# pinned/injected by the private Tier 2 overlay. The public repo never names the
+# private config repo. The cascade finalizer is added by the Tier 3 aggregator.
+#
+# alloy-logs: per-node pod-log shipper. DaemonSet on ALL nodes (control-plane
+# toleration) tailing /var/log/pods from the host (Talos/containerd, no Docker
+# symlinks) and pushing to the in-cluster Loki. Log collection is inherently
+# per-node, so a DaemonSet is correct here; the cluster-events pipeline is NOT in
+# this release (it lives in the single-replica alloy-metrics to avoid per-node
+# event duplication).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: alloy-logs
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "4"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    - repoURL: https://grafana.github.io/helm-charts
+      chart: alloy
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: alloy-logs
+        valueFiles:
+          - $values/argocd/apps/alloy-logs/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: monitoring
+  syncPolicy:
+    # Plain CreateNamespace: the sibling prometheus app (sync-wave 3) owns the
+    # monitoring namespace and stamps its Pod-Security enforce=privileged label
+    # (which this DaemonSet's /var/log hostPath needs) BEFORE this wave-4 app
+    # syncs, so no managedNamespaceMetadata is declared here.
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply for parity with the other platform Tier 1s and to avoid
+      # the client-side last-applied annotation limit on the River ConfigMap.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
