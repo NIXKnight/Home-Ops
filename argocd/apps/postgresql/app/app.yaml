@@ -1,0 +1,82 @@
+---
+# Application: postgresql (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source, but source[0] is a NULL
+# chart: the PostgreSQL instance is a CloudNativePG `Cluster` CR, not a Helm release,
+# so source[0] points at the bedag `raw` utility chart, which renders NOTHING when
+# given an empty resources list (see the private values.yaml). Every real object
+# (the CNPG Cluster + its owner-credential ExternalSecret) lives in the private
+# manifests source[2]. This keeps the exact 3-source shape the Tier 2 overlay + Tier
+# 3 aggregator already know how to patch (identical to llamacpp / zfs-localpv), with
+# no changes to the shared machinery. The chart version, the $values path, and the
+# manifests path are PLACEHOLDERs pinned by the private Tier 2 overlay; the private
+# git-source repoURLs are injected there too. The cascade finalizer is added by the
+# Tier 3 aggregator. The public repo never names the private config repo.
+#
+# WORKLOAD: the cluster-wide shared PostgreSQL instance (a single-instance CNPG
+# Cluster on the storage worker, backed by a dedicated ZFS StorageClass). It serves
+# the postgresql-rw / -ro / -r Services. The bifrost app is its first consumer;
+# future databases join declaratively via CNPG `Database` CRs added to the private
+# manifests/ dir. Depends on cloudnative-pg (wave 1) for the CRD/webhooks and
+# zfs-localpv (wave 1) for the StorageClass.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: postgresql
+  namespace: argocd
+  annotations:
+    # Wave 2: the Cluster CR needs the postgresql.cnpg.io CRD + admission webhooks
+    # (cloudnative-pg, wave 1) present and the zfs-postgresql StorageClass
+    # (zfs-localpv, wave 1) provisionable, plus its owner Secret from ESO (wave 0).
+    # Wave 2 is the earliest wave that starts only after those are Healthy.
+    argocd.argoproj.io/sync-wave: "2"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships an ExternalSecret (the PG owner basic-auth) under selfHeal; ESO
+  # writes these remoteRef defaults back, and ArgoCD would otherwise fight it every
+  # reconcile. (Same block as the grafana Tier 1.)
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    # NULL chart: bedag `raw` renders only what its .Values.resources lists, which
+    # the private values.yaml sets to [] -> zero objects. Present solely to hold the
+    # 3-source helm-direct shape; all real manifests come from source[2].
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: postgresql
+        valueFiles:
+          - $values/argocd/apps/postgresql/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the CNPG Cluster + the owner ExternalSecret) from
+    # the private config repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/postgresql/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: postgresql
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

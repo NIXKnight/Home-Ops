@@ -1,0 +1,75 @@
+---
+# Application: cloudnative-pg (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype, 2-source (chart + $values ref). No manifests source: the
+# operator, its CRDs, RBAC and admission webhooks are all rendered by the chart; the
+# cluster-wide PostgreSQL INSTANCE it manages is a SEPARATE app (postgresql). The
+# chart version, the private git source repoURL, and the concrete $values path are
+# PLACEHOLDERs, pinned/injected by the private Tier 2 overlay. The public repo never
+# names the private config repo. The cascade finalizer is added by the Tier 3
+# aggregator.
+#
+# WORKLOAD: the CloudNativePG operator -- a controller that reconciles
+# postgresql.cnpg.io CRs (Cluster, Database, Backup, ...). The operator pods are
+# pinned to the control-plane nodes (private values); the PG data plane lands
+# wherever the postgresql app's Cluster CR schedules it.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: cloudnative-pg
+  namespace: argocd
+  annotations:
+    # Wave 1: installs the postgresql.cnpg.io CRDs + admission webhooks that the
+    # postgresql app (wave 2) Cluster CR depends on. No dependency on ESO (wave 0),
+    # cert-manager or the ingress apps -- CNPG self-signs its own webhook serving
+    # certs, so it sits in the same "CRD/driver installer" tier as zfs-localpv.
+    argocd.argoproj.io/sync-wave: "1"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The operator injects its serving CA into its OWN admission-webhook configs at
+  # runtime; the chart renders them with an empty caBundle, so ArgoCD's client-side
+  # diff shows perpetual drift on that operator-owned field (OutOfSync while
+  # Healthy). Ignore just the caBundle paths -- matches the alloy-metrics
+  # apiserver-owned-field precedent (diff-calc only; the operator re-injects anyway).
+  ignoreDifferences:
+    - group: admissionregistration.k8s.io
+      kind: MutatingWebhookConfiguration
+      jqPathExpressions:
+        - '.webhooks[].clientConfig.caBundle'
+    - group: admissionregistration.k8s.io
+      kind: ValidatingWebhookConfiguration
+      jqPathExpressions:
+        - '.webhooks[].clientConfig.caBundle'
+  sources:
+    - repoURL: https://cloudnative-pg.github.io/charts
+      chart: cloudnative-pg
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: cloudnative-pg
+        valueFiles:
+          - $values/argocd/apps/cloudnative-pg/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: cnpg-system
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # ServerSideApply avoids the client-side last-applied annotation limit on the
+      # large CNPG CRDs the chart installs.
+      - ServerSideApply=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

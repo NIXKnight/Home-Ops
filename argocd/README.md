@@ -80,9 +80,12 @@ sources.
 | `0`  | `external-secrets` (ESO chart + ClusterSecretStore/CRB via chart `extraObjects`) |
 | `1`  | `cert-manager` |
 | `1`  | `zfs-localpv` (OpenEBS ZFS-LocalPV CSI + StorageClasses for the monitoring node) |
+| `1`  | `cloudnative-pg` (CloudNativePG operator: installs the `postgresql.cnpg.io` CRDs + admission webhooks the `postgresql` app consumes) |
 | `2`  | `traefik` (its Certificate needs cert-manager's CRDs + a ready ClusterIssuer) |
 | `2`  | `external-dns-private` (publishes cluster Ingress hosts to the on-network DNS; needs ESO wave 0 for its API-key Secret) |
+| `2`  | `postgresql` (cluster-wide shared PostgreSQL: single-instance CNPG `Cluster` on the storage worker over a dedicated ZFS StorageClass; serves `postgresql-rw`/`-ro`/`-r`) |
 | `3`  | `prometheus` (metrics store: long-retention TSDB + remote-write receiver + platform alert rules; sole owner of the monitoring namespace metadata and the `observability-critical` PriorityClass the wave-4 apps consume) |
+| `3`  | `bifrost` (OpenAI-compatible LLM gateway; config + logs in the shared PostgreSQL, provider/encryption keys via ESO, LAN Ingress) |
 | `4`  | `loki` (log store on the monitoring node; consumes the wave-3 namespace + PriorityClass) |
 | `4`  | `grafana` (dashboards + alerting UI over Prometheus and Loki) |
 | `4`  | `alloy-metrics` (sole metrics collector: scrapes targets and remote-writes to Prometheus) |

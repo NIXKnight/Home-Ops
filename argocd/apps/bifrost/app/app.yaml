@@ -1,0 +1,77 @@
+---
+# Application: bifrost (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the bifrost chart installs
+# the gateway Deployment/Service/config; the env-specific ExternalSecrets (provider
+# API keys, config-encryption key, PostgreSQL password) and the LAN Ingress live in
+# the private repo at argocd/apps/bifrost/environments/<env>/manifests/. The chart
+# version, the $values path, and the manifests path are PLACEHOLDERs pinned by the
+# private Tier 2 overlay; the private git-source repoURLs are injected there too.
+# The cascade finalizer is added by the Tier 3 aggregator. The public repo never
+# names the private config repo.
+#
+# WORKLOAD: Bifrost -- an OpenAI-compatible LLM gateway. Fronts multiple upstream
+# providers (cloud APIs + the in-cluster llama.cpp server) behind one endpoint, with
+# its config + logs stored in the shared PostgreSQL instance (postgresql app). Runs
+# on the control-plane nodes (private values). All provider keys and the encryption
+# key are injected as env vars from ESO-managed Secrets -- never inlined.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: bifrost
+  namespace: argocd
+  annotations:
+    # Wave 3: needs the shared PostgreSQL (postgresql, wave 2) reachable for its
+    # config/logs store, working LAN ingress -- traefik + external-dns-private (both
+    # wave 2) -- for its Ingress host to resolve and route, and its Secrets from ESO
+    # (wave 0). Wave 3 is the earliest wave that starts only after those are Healthy.
+    # It calls the llama.cpp server (also wave 3) at request time only, not at
+    # startup, so it is deliberately not gated behind it.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships ExternalSecrets under selfHeal; ESO writes these remoteRef defaults
+  # back, and ArgoCD would otherwise fight it every reconcile. (Same block as the
+  # grafana Tier 1.)
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    - repoURL: https://maximhq.github.io/bifrost/helm-charts
+      chart: bifrost
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: bifrost
+        valueFiles:
+          - $values/argocd/apps/bifrost/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the provider/encryption/postgres ExternalSecrets +
+    # the LAN Ingress) from the private config repo (repoURL injected by Tier 2).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/bifrost/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: bifrost
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
