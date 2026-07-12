@@ -2,19 +2,21 @@
 # Application: bifrost (Tier 1 base -- STRUCTURE, public).
 #
 # helm-direct archetype WITH a third (manifests) source: the bifrost chart installs
-# the gateway Deployment/Service/config; the env-specific ExternalSecrets (provider
-# API keys, config-encryption key, PostgreSQL password) and the LAN Ingress live in
+# the gateway Deployment/Service/config; the env-specific ExternalSecrets (whatever
+# credentials the environment wires -- the config-encryption key, the PostgreSQL
+# password, and optionally cloud-provider API keys) and the LAN Ingress live in
 # the private repo at argocd/apps/bifrost/environments/<env>/manifests/. The chart
 # version, the $values path, and the manifests path are PLACEHOLDERs pinned by the
 # private Tier 2 overlay; the private git-source repoURLs are injected there too.
 # The cascade finalizer is added by the Tier 3 aggregator. The public repo never
 # names the private config repo.
 #
-# WORKLOAD: Bifrost -- an OpenAI-compatible LLM gateway. Fronts multiple upstream
-# providers (cloud APIs + the in-cluster llama.cpp server) behind one endpoint, with
-# its config + logs stored in the shared PostgreSQL instance (postgresql app). Runs
-# on the control-plane nodes (private values). All provider keys and the encryption
-# key are injected as env vars from ESO-managed Secrets -- never inlined.
+# WORKLOAD: Bifrost -- an OpenAI-compatible LLM gateway. Fronts one or more upstream
+# providers behind a single endpoint -- currently just the in-cluster llama.cpp
+# server, with cloud APIs addable later -- with its config + logs stored in the
+# shared PostgreSQL instance (postgresql app). Runs on the control-plane nodes
+# (private values). The encryption key, the DB password, and any provider keys are
+# injected as env vars from ESO-managed Secrets -- never inlined.
 apiVersion: argoproj.io/v1alpha1
 kind: Application
 metadata:
@@ -55,8 +57,8 @@ spec:
     - repoURL: PLACEHOLDER
       targetRevision: main
       ref: values
-    # env-specific raw manifests (the provider/encryption/postgres ExternalSecrets +
-    # the LAN Ingress) from the private config repo (repoURL injected by Tier 2).
+    # env-specific raw manifests (the environment's ExternalSecrets + the LAN Ingress)
+    # from the private config repo (repoURL injected by Tier 2).
     - repoURL: PLACEHOLDER
       targetRevision: main
       path: argocd/apps/bifrost/environments/PLACEHOLDER/manifests
