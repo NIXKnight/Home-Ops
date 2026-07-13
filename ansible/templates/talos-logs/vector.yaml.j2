@@ -1,0 +1,207 @@
+# {{ ansible_managed }}
+#
+# Vector receiver for Talos node kernel-log streams. Rendered by the
+# docker-compose-service role (TALOS_LOGS_COMPOSE_SERVICE_TEMPLATES) and mounted
+# read-only at /etc/vector/vector.yaml. See the Internal config-talos-logs.yml
+# header for the full rationale (2026-07-12 cawl-inferior reboot, no recoverable
+# kernel trace).
+#
+# Two UDP sockets. Each stream lands in TWO sinks: a durable per-node host FILE
+# (source of truth, survives cluster death) and — ADDITIVELY — the cluster LOKI
+# (queryable copy in Grafana). The file sinks are unchanged by the Loki addition.
+#   - Source A  udp/{{ TALOS_LOGS_KMSG_PORT }}  Talos KmsgLogConfig, json_lines (structured, userspace)
+#   - Source B  udp/{{ TALOS_LOGS_NETCONSOLE_PORT }}  kernel netconsole, RAW text (panic-context, in-kernel)
+#
+# network_mode: host (set in the compose manifest) is load-bearing: the socket
+# sources read the real cluster-node source IP from each datagram, and that IP
+# drives the per-host file partitioning below. Under bridge networking Docker's
+# NAT would rewrite every source to the bridge gateway and collapse all nodes
+# into one file.
+
+# Newline framing + raw-byte decoding on both sources: keep each line's bytes
+# verbatim in `.message` and do any structural parsing downstream in a remap, so
+# a malformed line is preserved as evidence rather than dropped at ingest.
+sources:
+  # Source A — Talos KmsgLogConfig. Each line is a JSON object (msg, talos-level,
+  # talos-time, plus kmsg facility/seq/priority/clock fields).
+  talos_kmsg:
+    type: socket
+    mode: udp
+    address: "0.0.0.0:{{ TALOS_LOGS_KMSG_PORT }}"
+    framing:
+      method: newline_delimited
+    decoding:
+      codec: bytes
+
+  # Source B — kernel netconsole. RAW text emitted from inside the kernel during a
+  # panic/oops, when userspace (hence KmsgLogConfig) is already gone. Never parsed.
+  netconsole:
+    type: socket
+    mode: udp
+    address: "0.0.0.0:{{ TALOS_LOGS_NETCONSOLE_PORT }}"
+    framing:
+      method: newline_delimited
+    decoding:
+      codec: bytes
+
+transforms:
+  # Normalize the peer address the socket source puts in `.host`. For UDP that value
+  # is "IP:port" and the port is ephemeral (fresh per datagram), so it must be
+  # trimmed to the bare IP or the file sink would fan out into one file per source
+  # port. Then best-effort parse the Talos JSON and fold the structured fields onto
+  # the event, re-asserting the peer IP afterward so path templating stays stable.
+  # On ANY parse failure the raw event passes through untouched (crash-window
+  # evidence is never dropped) and is flagged talos_parsed=false.
+  talos_kmsg_parse:
+    type: remap
+    inputs:
+      - talos_kmsg
+    source: |
+      peer = string(.host) ?? "unknown"
+      .host = split(peer, ":")[0]
+      parsed, err = parse_json(.message)
+      if err == null {
+        saved_host = .host
+        . = merge(., parsed) ?? .
+        .host = saved_host
+        .talos_parsed = true
+      } else {
+        .talos_parsed = false
+      }
+
+  # netconsole is raw text — only the host needs the same "IP:port" -> "IP" trim so
+  # its sink can partition per node. The message body is left exactly as received.
+  netconsole_host:
+    type: remap
+    inputs:
+      - netconsole
+    source: |
+      peer = string(.host) ?? "unknown"
+      .host = split(peer, ":")[0]
+
+  # --- Loki label derivation (cluster forwarding) -------------------------------
+  # ADDITIVE: these two transforms feed ONLY the Loki sinks below. The file sinks keep
+  # consuming talos_kmsg_parse / netconsole_host unchanged, so the durable on-disk
+  # evidence stays byte-for-byte identical. Here we derive the low-cardinality labels
+  # Loki indexes on. The node NAME is the only reliable node identity — the Talos kmsg
+  # payload carries no hostname — so it is mapped from the datagram's real peer IP
+  # (visible only because of network_mode: host) through TALOS_LOGS_NODE_MAP. That map
+  # is injected from the Internal group_vars because the node hostnames encode the
+  # cluster identity; this public template never spells them out. On an unknown or
+  # unmapped sender the bare IP is used as the node label rather than dropping the
+  # event. `get` mirrors the parse transform's `value, err =` house style.
+  talos_kmsg_loki_labels:
+    type: remap
+    inputs:
+      - talos_kmsg_parse
+    source: |
+      node_map = {{ TALOS_LOGS_NODE_MAP | to_json }}
+      mapped, err = get(node_map, [.host])
+      if err == null && mapped != null {
+        .node = mapped
+      } else {
+        .node = .host
+      }
+      .level = to_string(."talos-level") ?? "unknown"
+
+  netconsole_loki_labels:
+    type: remap
+    inputs:
+      - netconsole_host
+    source: |
+      node_map = {{ TALOS_LOGS_NODE_MAP | to_json }}
+      mapped, err = get(node_map, [.host])
+      if err == null && mapped != null {
+        .node = mapped
+      } else {
+        .node = .host
+      }
+
+sinks:
+  # kmsg -> structured NDJSON (one event per line), partitioned per node IP. The
+  # {% raw %}{{ host }}{% endraw %} below is Vector's OWN template syntax (escaped from Ansible/Jinja
+  # via raw), resolved by Vector to the sender IP. The %Y-%m-%d is Vector-native
+  # daily rotation, which bounds PER-FILE growth.
+  #
+  # HOST CONCERN: the file sink has no retention/deletion, so pruning old daily
+  # files is a host job (logrotate, or a cron:
+  #   find {{ TALOS_LOGS_DATA_DIR }} -name '*.log' -mtime +N -delete
+  # ). Deliberately NO extra rotation/retention container.
+  talos_kmsg_file:
+    type: file
+    inputs:
+      - talos_kmsg_parse
+    path: "{{ TALOS_LOGS_DATA_DIR }}/talos-kmsg-{% raw %}{{ host }}{% endraw %}-%Y-%m-%d.log"
+    encoding:
+      codec: json
+
+  # netconsole -> raw lines. The `text` codec writes the `.message` field verbatim,
+  # preserving the exact kernel output. Same per-host + daily-rotation scheme, same
+  # host-side retention note as above.
+  netconsole_file:
+    type: file
+    inputs:
+      - netconsole_host
+    path: "{{ TALOS_LOGS_DATA_DIR }}/netconsole-{% raw %}{{ host }}{% endraw %}-%Y-%m-%d.log"
+    encoding:
+      codec: text
+
+  # --- Cluster Loki forwarding (ADDITIVE) ---------------------------------------
+  # Both streams ALSO push to the cluster Loki so kernel logs are queryable in Grafana
+  # alongside the rest of the estate. The file sinks above remain the durable, off-
+  # cluster source of truth (they survive cluster death); Loki is the convenience copy.
+  #
+  # endpoint is the Loki BASE URL only — Vector's loki sink appends /loki/api/v1/push
+  # itself (confirmed against 0.54 docs); do NOT put the push path in the var. TLS is a
+  # valid LE wildcard and the LAN ingress needs no auth, so no tls/auth block.
+  #
+  # buffer.type: disk spools to disk during a cluster/Loki outage instead of dropping.
+  # when_full: drop_newest is DELIBERATE, not the Vector default `block`: these sinks
+  # share their UDP sources with the file sinks above, and `block` would back-pressure
+  # that shared source and STALL the durable file sinks during a prolonged Loki outage.
+  # drop_newest confines any loss to the (non-authoritative) Loki copy once the
+  # {{ TALOS_LOGS_LOKI_BUFFER_MAX_SIZE }}-byte spool is exhausted, and never stalls
+  # evidence capture. out_of_order_action: accept avoids the loki sink's historical
+  # silent drop of out-of-order lines (multi-node panic interleave).
+  #
+  # NOTE: the spool lives under Vector's default data_dir (/var/lib/vector) inside the
+  # container and is NOT bind-mounted, so a container RECREATE (config change/upgrade)
+  # discards any unsent spool. Acceptable — the file sinks already hold every line.
+  # Persist the buffer dir via a volume + global data_dir if cross-recreate Loki
+  # durability is ever required (see the OPEN note in Internal config-talos-logs.yml).
+  talos_kmsg_loki:
+    type: loki
+    inputs:
+      - talos_kmsg_loki_labels
+    endpoint: "{{ TALOS_LOGS_LOKI_ENDPOINT }}"
+    encoding:
+      codec: json
+    out_of_order_action: accept
+    healthcheck:
+      enabled: true
+    labels:
+      job: talos-kmsg
+      node: "{% raw %}{{ node }}{% endraw %}"
+      level: "{% raw %}{{ level }}{% endraw %}"
+    buffer:
+      type: disk
+      when_full: drop_newest
+      max_size: {{ TALOS_LOGS_LOKI_BUFFER_MAX_SIZE }}
+
+  netconsole_loki:
+    type: loki
+    inputs:
+      - netconsole_loki_labels
+    endpoint: "{{ TALOS_LOGS_LOKI_ENDPOINT }}"
+    encoding:
+      codec: text
+    out_of_order_action: accept
+    healthcheck:
+      enabled: true
+    labels:
+      job: talos-netconsole
+      node: "{% raw %}{{ node }}{% endraw %}"
+    buffer:
+      type: disk
+      when_full: drop_newest
+      max_size: {{ TALOS_LOGS_LOKI_BUFFER_MAX_SIZE }}

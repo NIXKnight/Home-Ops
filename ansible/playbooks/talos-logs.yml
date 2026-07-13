@@ -1,0 +1,36 @@
+---
+# talos-logs — Vector receiver for Talos node kernel-log streams (KmsgLogConfig +
+# kernel netconsole), parked off-cluster on the gateway so it survives node/cluster
+# death. Motivated by the 2026-07-12 cawl-inferior spontaneous reboot that left no
+# recoverable kernel trace. See the Internal config-talos-logs.yml header for the
+# full rationale and the two-stream design.
+#
+# FILE MANAGEMENT IS ROLE-NATIVE. The Vector config is rendered through the role's
+# templates interface (TALOS_LOGS_COMPOSE_SERVICE_TEMPLATES), so the role's own
+# change-detection (create_update_service.yml) restarts the container whenever the
+# rendered config changes.
+#
+# NETWORKING: network_mode: host. Vector binds 0.0.0.0:{{ '{' }} kmsg,netconsole {{ '}' }} udp directly
+# on the gateway; host networking lets the socket sources see the real cluster-node
+# source IPs, which drive per-host file partitioning. The two UDP ports are opened,
+# source-restricted to the cluster LAN, in Internal config-firewall.yml and applied
+# by playbooks/firewall.yml — NOT here.
+- name: Deploy talos-logs (Vector receiver for Talos kernel-log streams)
+  hosts: talos_logs
+  gather_facts: true
+  become: true
+  collections:
+    - nixknight.docker
+  roles:
+    - role: docker-compose-service
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ TALOS_LOGS_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ TALOS_LOGS_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ TALOS_LOGS_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ TALOS_LOGS_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ TALOS_LOGS_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ TALOS_LOGS_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ TALOS_LOGS_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ TALOS_LOGS_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ TALOS_LOGS_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ TALOS_LOGS_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ TALOS_LOGS_SERVICE_MANIFEST }}"
