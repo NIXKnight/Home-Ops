@@ -1,0 +1,86 @@
+---
+# Application: coolercontrol (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source, but source[0] is a NULL
+# chart: there is no upstream CoolerControl Helm chart, so the workload is raw
+# manifests. source[0] points at the bedag `raw` utility chart, which renders
+# NOTHING when given an empty resources list (see the private values.yaml); every
+# real object (ConfigMap, Deployment, Service) lives in the private manifests
+# source[2]. This keeps the exact 3-source helm-direct shape the Tier 2 overlay +
+# Tier 3 aggregator already know how to patch (identical to llamacpp /
+# zfs-localpv), with no changes to the shared machinery. The chart version, the
+# $values path, and the manifests path are PLACEHOLDERs pinned by the private
+# Tier 2 overlay; the private git-source repoURLs are injected there too. The
+# cascade finalizer is added by the Tier 3 aggregator. The public repo never names
+# the private config repo.
+#
+# WORKLOAD: CoolerControl (coolercontrold) -- a unified fan-control daemon on the
+# GPU worker node. It drives the motherboard fans through the host it87 hwmon chip
+# (PWM writes under /sys) and the GPU fans through NVML (libnvidia-ml injected by
+# the NVIDIA container runtime). It runs privileged (root, hostPath /sys rw) to
+# write PWM, so the auto-created coolercontrol namespace is labeled
+# enforce=privileged via managedNamespaceMetadata below. coolercontrol is the SOLE
+# tenant of its namespace, so it owns the namespace metadata outright (no sibling
+# to drift-fight over the label). NO Ingress by design -- the UI has no meaningful
+# auth for LAN exposure; reach it via `kubectl -n coolercontrol port-forward`.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: coolercontrol
+  namespace: argocd
+  annotations:
+    # Wave 3: the daemon needs the NVIDIA container runtime (the `nvidia`
+    # RuntimeClass + toolkit from gpu-operator, wave 1) present so NVML can be
+    # injected for GPU-fan control. Wave 3 is the earliest wave that starts only
+    # after gpu-operator is Healthy. It shares wave 3 with the observability
+    # foundation that ships the PriorityClass it references (see the private
+    # Deployment's priorityClassName).
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  sources:
+    # NULL chart: bedag `raw` renders only what its .Values.resources lists, which
+    # the private values.yaml sets to [] -> zero objects. Present solely to hold the
+    # 3-source helm-direct shape; all real manifests come from source[2].
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: coolercontrol
+        valueFiles:
+          - $values/argocd/apps/coolercontrol/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the ConfigMap, Deployment and Service) from the
+    # private config repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/coolercontrol/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: coolercontrol
+  syncPolicy:
+    # SOLE OWNER of the coolercontrol namespace metadata. The daemon runs
+    # privileged (root, hostPath /sys rw for PWM writes) -- forbidden under PSA
+    # Baseline/Restricted -- so label the auto-created namespace enforce=privileged.
+    # coolercontrol is the only app in this namespace, so no sibling contends for
+    # the label. Nests under syncPolicy per the ArgoCD v3.4 Application schema.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

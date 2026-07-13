@@ -86,6 +86,7 @@ sources.
 | `2`  | `postgresql` (cluster-wide shared PostgreSQL: single-instance CNPG `Cluster` on the storage worker over a dedicated ZFS StorageClass; serves `postgresql-rw`/`-ro`/`-r`) |
 | `3`  | `prometheus` (metrics store: long-retention TSDB + remote-write receiver + platform alert rules; sole owner of the monitoring namespace metadata and the `observability-critical` PriorityClass the wave-4 apps consume) |
 | `3`  | `bifrost` (OpenAI-compatible LLM gateway; config + logs in the shared PostgreSQL, provider/encryption keys via ESO, LAN Ingress) |
+| `3`  | `coolercontrol` (privileged fan-control daemon on the GPU worker: board fans via host it87 hwmon + GPU fans via NVML; sole tenant of a privileged-PSA namespace, no Ingress) |
 | `4`  | `loki` (log store on the monitoring node; consumes the wave-3 namespace + PriorityClass) |
 | `4`  | `grafana` (dashboards + alerting UI over Prometheus and Loki) |
 | `4`  | `alloy-metrics` (sole metrics collector: scrapes targets and remote-writes to Prometheus) |
