@@ -9,8 +9,6 @@ ansible/.ansible_vault_password
 *debug*
 .terraform
 .terraform.lock.hcl
-# authentik unit lock: exact provider pin deliberately committed for reproducibility
-!terragrunt/authentik/.terraform.lock.hcl
 .terragrunt-cache
 terraform.tfstate
 terraform.tfstate.backup
