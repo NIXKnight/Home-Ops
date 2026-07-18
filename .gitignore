@@ -28,3 +28,5 @@ __pycache__/
 # OS / editor noise
 .DS_Store
 *.swp
+.playwright-mcp
+.playwright-cli
