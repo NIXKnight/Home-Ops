@@ -1,0 +1,16 @@
+dependencies: []
+galaxy_info:
+  author: Saad Ali
+  description: Headless CABAL Claude Code monitor harness - systemd --user timer plus qwen3.6-27b endpoint config.
+  license: MIT
+  min_ansible_version: "8.1"
+  platforms:
+  - name: Debian
+    versions:
+      - bookworm
+      - trixie
+  galaxy_tags:
+    - claudecode
+    - systemd
+    - cabal
+    - whatsapp

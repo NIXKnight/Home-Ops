@@ -1,0 +1,14 @@
+# {{ ansible_managed }}
+# Fires cabal-monitor.service on a fixed cadence. AccuracySec is pinned low so a
+# ~{{ CABAL_MONITOR_INTERVAL_SEC }}s interval is honoured (systemd defaults to 1min accuracy).
+[Unit]
+Description=CABAL headless monitor cadence
+
+[Timer]
+OnBootSec={{ CABAL_MONITOR_ON_BOOT_SEC }}s
+OnUnitActiveSec={{ CABAL_MONITOR_INTERVAL_SEC }}s
+AccuracySec={{ CABAL_MONITOR_ACCURACY_SEC }}
+Unit=cabal-monitor.service
+
+[Install]
+WantedBy=timers.target

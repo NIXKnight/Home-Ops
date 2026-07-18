@@ -1,0 +1,127 @@
+---
+# tasks file for cabal-monitor
+#
+# Author-only migration of the CABAL Claude Code harness on ZEROKAGE:
+#   * point the harness at the self-hosted qwen3.6-27b endpoint (settings env),
+#   * replace the in-session self-rescheduling monitor with fresh per-cycle
+#     headless sessions fired by a systemd --user timer (bounds prompt context),
+#   * isolate the harness config into CLAUDE_CONFIG_DIR=.claude-cabal so it stops
+#     dragging the full default ~/.claude agent/plugin fleet into every prompt.
+#
+# Everything runs in the systemd --user scope of CABAL_USER. The WhatsApp bridge
+# stack is intentionally NOT managed here.
+
+- name: Ensure CABAL config, runtime and systemd --user directories exist
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: 0755
+  loop:
+    - "{{ CABAL_CONFIG_DIR }}"
+    - "{{ CABAL_CONFIG_DIR }}/agents"
+    - "{{ CABAL_RUNTIME_DIR }}"
+    - "{{ CABAL_SYSTEMD_USER_DIR }}"
+
+# --- Linger: let --user units run without an active login session ---
+- name: Check systemd linger state for {{ CABAL_USER }}
+  ansible.builtin.command:
+    cmd: "loginctl show-user {{ CABAL_USER }} --property=Linger --value"
+  register: cabal_linger_state
+  changed_when: false
+  failed_when: false
+
+- name: Enable systemd linger for {{ CABAL_USER }}
+  ansible.builtin.command:
+    cmd: "loginctl enable-linger {{ CABAL_USER }}"
+  become: true
+  changed_when: true
+  when: (cabal_linger_state.stdout | trim) != "yes"
+
+# --- Bring the persona repo current so the new CLAUDE.md / hook / commands are present ---
+- name: Pull the CABAL persona repo current (fast-forward only)
+  ansible.builtin.command:
+    cmd: "git -C {{ CABAL_REPO_DIR }} pull --ff-only"
+  register: cabal_git_pull
+  changed_when: "'Already up to date' not in cabal_git_pull.stdout"
+  failed_when: cabal_git_pull.rc != 0
+
+# --- Isolate inventory: symlink ONLY the sealed workers + persona commands + the MCP def ---
+- name: Link the sealed research workers into the isolated config dir
+  ansible.builtin.file:
+    src: "{{ CABAL_REPO_DIR }}/.claude/agents/{{ item }}.md"
+    dest: "{{ CABAL_CONFIG_DIR }}/agents/{{ item }}.md"
+    state: link
+    force: true
+  loop: "{{ CABAL_HARNESS_AGENTS }}"
+
+- name: Link the persona command set into the isolated config dir
+  ansible.builtin.file:
+    src: "{{ CABAL_REPO_DIR }}/.claude/commands"
+    dest: "{{ CABAL_CONFIG_DIR }}/commands"
+    state: link
+    force: true
+
+- name: Render the WhatsApp MCP server definition
+  ansible.builtin.template:
+    src: "mcp.json.j2"
+    dest: "{{ CABAL_CONFIG_DIR }}/.mcp.json"
+    mode: 0644
+
+# --- settings.json: MERGE the CABAL overlay over the existing keys, never clobber ---
+- name: Stat the existing isolated settings.json
+  ansible.builtin.stat:
+    path: "{{ CABAL_CONFIG_DIR }}/settings.json"
+  register: cabal_settings_stat
+
+- name: Read the existing isolated settings.json
+  ansible.builtin.slurp:
+    src: "{{ CABAL_CONFIG_DIR }}/settings.json"
+  register: cabal_settings_slurp
+  when: cabal_settings_stat.stat.exists
+
+- name: Load existing settings (empty object when the file is absent)
+  ansible.builtin.set_fact:
+    cabal_settings_existing: "{{ (cabal_settings_slurp.content | b64decode | from_json) if cabal_settings_stat.stat.exists else {} }}"
+
+- name: Merge the CABAL overlay and drop the dropped bypass flag
+  ansible.builtin.set_fact:
+    cabal_settings_merged: >-
+      {{
+        (cabal_settings_existing | combine(CABAL_SETTINGS_OVERLAY, recursive=true))
+        | dict2items
+        | rejectattr('key', 'equalto', 'skipDangerousModePermissionPrompt')
+        | items2dict
+      }}
+
+- name: Write the merged settings.json
+  ansible.builtin.copy:
+    content: "{{ cabal_settings_merged | to_nice_json }}\n"
+    dest: "{{ CABAL_CONFIG_DIR }}/settings.json"
+    mode: 0644
+
+# --- systemd --user units: headless cadence replacing the in-session cron ---
+- name: Install the cabal-monitor oneshot service unit
+  ansible.builtin.template:
+    src: "cabal-monitor.service.j2"
+    dest: "{{ CABAL_SYSTEMD_USER_DIR }}/cabal-monitor.service"
+    mode: 0644
+  notify: Reload cabal user systemd
+
+- name: Install the cabal-monitor timer unit
+  ansible.builtin.template:
+    src: "cabal-monitor.timer.j2"
+    dest: "{{ CABAL_SYSTEMD_USER_DIR }}/cabal-monitor.timer"
+    mode: 0644
+  notify:
+    - Reload cabal user systemd
+    - Restart cabal-monitor timer
+
+- name: Apply pending unit reloads/restarts before converging timer state
+  ansible.builtin.meta: flush_handlers
+
+- name: Enable and start the cabal-monitor timer
+  ansible.builtin.systemd_service:
+    name: "cabal-monitor.timer"
+    scope: user
+    enabled: true
+    state: started

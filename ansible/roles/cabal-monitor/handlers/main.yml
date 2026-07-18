@@ -1,0 +1,13 @@
+---
+# handlers file for cabal-monitor
+# Both run in the --user scope; they inherit the play-level XDG_RUNTIME_DIR.
+- name: Reload cabal user systemd
+  ansible.builtin.systemd_service:
+    scope: user
+    daemon_reload: true
+
+- name: Restart cabal-monitor timer
+  ansible.builtin.systemd_service:
+    name: "cabal-monitor.timer"
+    scope: user
+    state: restarted

@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+# One CABAL monitor cycle: a single fresh headless `claude -p "/monitor"` run.
+# Fresh per-cycle sessions bound prompt context by construction - the fix for
+# the in-session monitor's unbounded-context failure.
+#
+# ANTHROPIC_* (base URL, model aliases, key, timeouts) are NOT set here; they
+# live in {{ CABAL_CONFIG_DIR }}/settings.json `env` and are loaded by Claude
+# Code at startup. This unit only points at the isolated config dir.
+[Unit]
+Description=CABAL headless monitor cycle (single /monitor pass)
+After=default.target
+
+[Service]
+Type=oneshot
+WorkingDirectory={{ CABAL_REPO_DIR }}
+Environment=CLAUDE_CONFIG_DIR={{ CABAL_CONFIG_DIR }}
+Environment=PATH={{ CABAL_MONITOR_PATH }}
+TimeoutStartSec={{ CABAL_MONITOR_TIMEOUT_SEC }}
+# flock -n -E 0: skip (exit 0) instead of failing when a prior cycle still holds
+# the lock, so overlapping cycles never run and never spam failures.
+ExecStart={{ CABAL_FLOCK_BIN }} -n -E 0 {{ CABAL_LOCK_FILE }} {{ CABAL_CLAUDE_BIN }} -p "/monitor" --permission-mode {{ CABAL_MONITOR_PERMISSION_MODE }} --allowedTools "{{ CABAL_ALLOWED_TOOLS | join(',') }}"

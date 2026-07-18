@@ -1,0 +1,34 @@
+---
+# CABAL headless monitor harness for ZEROKAGE.
+#
+# Migrates the Claude Code harness that drives the CABAL persona:
+#   1. from the Anthropic API to the self-hosted qwen3.6-27b endpoint
+#      (https://llm.h.nixknight.pk), via the settings.json `env` block;
+#   2. from an in-session self-rescheduling monitor to fresh per-cycle headless
+#      `claude -p "/monitor"` sessions fired by a systemd --user timer.
+# Fresh sessions bound prompt context by construction, fixing the unbounded
+# growth (645k-token prompts the server rejected) the in-session model caused.
+#
+# Runs entirely in the systemd --user scope of `saadali`. It does NOT touch the
+# WhatsApp bridge stack (whatsapp-bridge, whatsapp-mcp-server, whisper/embedder/
+# transcriber/dashboard) - those are already deployed and owned elsewhere.
+#
+# TARGETING (ZEROKAGE may not be in the shared inventory, whose hosts.yml carries
+# uncommitted work - do not edit it):
+#   * Group path: add `zerokage` to a `cabal_harness` group in your inventory,
+#     then:   ansible-playbook playbooks/cabal.yml -l zerokage
+#   * No-inventory path (nothing to edit):
+#             ansible-playbook playbooks/cabal.yml -i 'zerokage,' -e cabal_target=zerokage
+#     Ensure the connection lands as `saadali` (ssh config `User saadali`, or add
+#     `-e ansible_user=saadali`). Enabling linger uses become, so `saadali` needs sudo.
+#
+# See roles/cabal-monitor/README.md for the required manual steps (verify the
+# `claude` binary path, stop the legacy in-session monitor cron, ansible.cfg note).
+- name: Deploy CABAL headless monitor harness
+  hosts: "{{ cabal_target | default('cabal_harness') }}"
+  gather_facts: true
+  become: false
+  environment:
+    XDG_RUNTIME_DIR: "/run/user/{{ ansible_user_uid | default('1000') }}"
+  roles:
+    - cabal-monitor

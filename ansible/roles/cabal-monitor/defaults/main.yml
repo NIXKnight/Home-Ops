@@ -1,0 +1,99 @@
+---
+# defaults file for cabal-monitor
+#
+# All paths and the single credential below are the CABAL harness on ZEROKAGE,
+# owned by the unprivileged user CABAL_USER. Every value is overridable from
+# group_vars/host_vars. The ANTHROPIC_API_KEY is an intentional NON-SECRET
+# placeholder (see CABAL_ANTHROPIC_API_KEY) - the endpoint is unauthenticated
+# this round and Claude Code only needs a non-empty credential to send.
+
+# --- Identity / locations ---
+CABAL_USER: "saadali"
+CABAL_HOME: "/home/saadali"
+CABAL_REPO_DIR: "/home/saadali/Projects/CABAL"
+CABAL_CONFIG_DIR: "/home/saadali/.claude-cabal"
+CABAL_RUNTIME_DIR: "/home/saadali/.cabal"
+CABAL_LOCK_FILE: "/home/saadali/.cabal/monitor.lock"
+CABAL_SYSTEMD_USER_DIR: "/home/saadali/.config/systemd/user"
+
+# --- Claude Code binaries ---
+# The `claude` path is host-specific. Verify with `command -v claude` on
+# ZEROKAGE and override if it differs (npm global, asdf shim, native install).
+CABAL_CLAUDE_BIN: "/home/saadali/.local/bin/claude"
+CABAL_FLOCK_BIN: "/usr/bin/flock"
+
+# --- Headless monitor session ---
+# acceptEdits (non-bypass): auto-approves the file writes /monitor and
+# /assemble-context perform on their JSON state (savage_timers/
+# last_contempt_tool/session_stats) and context_cache.md, plus mkdir/cp, while
+# still gating arbitrary Bash. The old --dangerously-skip-permissions is dropped.
+CABAL_MONITOR_PERMISSION_MODE: "acceptEdits"
+# Read-only Bash verbs /monitor actually shells out to: jq + grep for filtering,
+# ls + head for the truncated-response fallback (`ls -t <dir> | head -1`).
+CABAL_ALLOWED_TOOLS:
+  - "mcp__WhatsApp__*"
+  - "Read"
+  - "Bash(jq:*)"
+  - "Bash(grep:*)"
+  - "Bash(ls:*)"
+  - "Bash(head:*)"
+# PATH for the --user service (jq/grep/ls live in /usr/bin; claude in ~/.local/bin).
+CABAL_MONITOR_PATH: "/home/saadali/.local/bin:/usr/local/bin:/usr/bin:/bin"
+# Hard ceiling on a single cycle so a hung session cannot pile up (seconds).
+CABAL_MONITOR_TIMEOUT_SEC: 600
+
+# --- Timer cadence (integer seconds) ---
+CABAL_MONITOR_ON_BOOT_SEC: 60
+CABAL_MONITOR_INTERVAL_SEC: 90
+CABAL_MONITOR_ACCURACY_SEC: "1s"
+
+# --- Self-hosted endpoint + model ---
+CABAL_ANTHROPIC_BASE_URL: "https://llm.h.nixknight.pk"
+CABAL_MODEL: "qwen3.6-27b"
+# NON-SECRET placeholder. Endpoint is unauthenticated this round; llama-server
+# ignores this value. Plaintext here is intentional and safe.
+CABAL_ANTHROPIC_API_KEY: "sk-local-cabal-open"
+CABAL_API_TIMEOUT_MS: "600000"
+CABAL_MAX_OUTPUT_TOKENS: "8192"
+CABAL_MAX_MCP_OUTPUT_TOKENS: "8192"
+
+# --- WhatsApp MCP server (already running as a --user service) ---
+CABAL_WHATSAPP_MCP_URL: "http://127.0.0.1:3000/mcp"
+
+# --- Sealed research workers exposed in the isolated config dir (ONLY these) ---
+CABAL_HARNESS_AGENTS:
+  - "web-recon"
+  - "docs-recon"
+
+# --- PreToolUse send-guard hook (file shipped by the CABAL persona repo) ---
+CABAL_SEND_GUARD_HOOK: "/home/saadali/Projects/CABAL/.claude/hooks/send-guard.py"
+CABAL_SEND_GUARD_MATCHER: "mcp__WhatsApp__(send_auto_message|send_group_message)"
+
+# --- settings.json overlay (MERGED over the existing file, never clobbered) ---
+CABAL_SETTINGS_ENV:
+  ANTHROPIC_BASE_URL: "{{ CABAL_ANTHROPIC_BASE_URL }}"
+  ANTHROPIC_MODEL: "{{ CABAL_MODEL }}"
+  ANTHROPIC_DEFAULT_OPUS_MODEL: "{{ CABAL_MODEL }}"
+  ANTHROPIC_DEFAULT_SONNET_MODEL: "{{ CABAL_MODEL }}"
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: "{{ CABAL_MODEL }}"
+  ANTHROPIC_DEFAULT_FABLE_MODEL: "{{ CABAL_MODEL }}"
+  ANTHROPIC_API_KEY: "{{ CABAL_ANTHROPIC_API_KEY }}"
+  API_TIMEOUT_MS: "{{ CABAL_API_TIMEOUT_MS }}"
+  CLAUDE_CODE_MAX_OUTPUT_TOKENS: "{{ CABAL_MAX_OUTPUT_TOKENS }}"
+  MAX_MCP_OUTPUT_TOKENS: "{{ CABAL_MAX_MCP_OUTPUT_TOKENS }}"
+  CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1"
+
+CABAL_SETTINGS_HOOKS:
+  PreToolUse:
+    - matcher: "{{ CABAL_SEND_GUARD_MATCHER }}"
+      hooks:
+        - type: "command"
+          command: "python3 {{ CABAL_SEND_GUARD_HOOK }}"
+
+CABAL_SETTINGS_OVERLAY:
+  env: "{{ CABAL_SETTINGS_ENV }}"
+  permissions:
+    allow: "{{ CABAL_ALLOWED_TOOLS }}"
+  hooks: "{{ CABAL_SETTINGS_HOOKS }}"
+  enabledMcpjsonServers:
+    - "WhatsApp"
