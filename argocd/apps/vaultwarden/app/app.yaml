@@ -1,0 +1,76 @@
+---
+# Application: vaultwarden (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the guerzon vaultwarden
+# chart installs the server Deployment/Service/config; the env-specific
+# ExternalSecrets (the admin token and the shared-PostgreSQL database credentials)
+# and any raw exposure objects live in the private repo at
+# argocd/apps/vaultwarden/environments/<env>/manifests/. The chart
+# version, the $values path, and the manifests path are PLACEHOLDERs pinned by the
+# private Tier 2 overlay; the private git-source repoURLs are injected there too. The
+# cascade finalizer is added by the Tier 3 aggregator. The public repo never names
+# the private config repo.
+#
+# WORKLOAD: Vaultwarden -- a self-hosted, Rust-based password manager compatible with
+# the Bitwarden clients. Stores its vault in the shared PostgreSQL instance
+# (postgresql app) and serves the web vault + API to LAN clients. The admin token
+# and the database credentials are injected as env vars from ESO-managed Secrets --
+# never inlined.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: vaultwarden
+  namespace: argocd
+  annotations:
+    # Wave 3: needs the shared PostgreSQL (postgresql, wave 2) reachable for its vault
+    # store, working LAN ingress -- traefik + external-dns-private (both wave 2) -- for
+    # its Ingress host to resolve and route, and its Secrets from ESO (wave 0). Wave 3
+    # is the earliest wave that starts only after those are Healthy.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships ExternalSecrets under selfHeal; ESO writes these remoteRef defaults
+  # back, and ArgoCD would otherwise fight it every reconcile. (Same block as the
+  # bifrost / grafana Tier 1.)
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    - repoURL: https://guerzon.github.io/vaultwarden
+      chart: vaultwarden
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: vaultwarden
+        valueFiles:
+          - $values/argocd/apps/vaultwarden/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the environment's ExternalSecrets -- the admin token
+    # + the DB credentials) from the private config repo (repoURL injected by Tier 2).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/vaultwarden/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: vaultwarden
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
