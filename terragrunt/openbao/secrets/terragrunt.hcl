@@ -43,6 +43,10 @@ dependency "authentik" {
   config_path = "../../authentik"
 
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
+  # Mocking is binary by default: once the authentik unit has ANY real state outputs,
+  # mock_outputs would be ignored wholesale and a not-yet-existing output hard-errors.
+  # Shallow-merge keeps real outputs authoritative while backfilling missing ones.
+  mock_outputs_merge_strategy_with_state = "shallow"
   mock_outputs = {
     outpost_tokens = {
       "cluster-proxy" = "mock-outpost-token-not-real"
