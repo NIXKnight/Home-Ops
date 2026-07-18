@@ -1,0 +1,91 @@
+---
+# Application: authentik-outpost (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source, but source[0] is a NULL
+# chart: there is no upstream Helm chart for a stand-alone authentik proxy outpost
+# (the official authentik chart deploys the whole SERVER), so the workload is raw
+# manifests. source[0] points at the bedag `raw` utility chart, which renders
+# NOTHING when given an empty resources list (see the private values.yaml); every
+# real object (Deployment, Service, ExternalSecret, Traefik Middleware, Ingress)
+# lives in the private manifests source[2]. This keeps the exact 3-source
+# helm-direct shape the Tier 2 overlay + Tier 3 aggregator already know how to patch
+# (identical to llamacpp / coolercontrol / zfs-localpv), with no changes to the
+# shared machinery. The chart version, the $values path, and the manifests path are
+# PLACEHOLDERs pinned by the private Tier 2 overlay; the private git-source repoURLs
+# are injected there too. The cascade finalizer is added by the Tier 3 aggregator.
+# The public repo never names the private config repo.
+#
+# WORKLOAD: an authentik PROXY OUTPOST (ghcr.io/goauthentik/proxy). The authentik
+# SERVER runs OUTSIDE this cluster; the outpost is a managed forward-auth proxy that
+# pulls its provider config from the server using an API token (ESO-injected) and
+# answers Traefik forwardAuth calls. It fronts LAN Ingress hosts with SSO -- the
+# first protected host is the cluster's Prometheus ingress; more hosts are added by
+# extending the private Ingress + wiring each protected router to the outpost's
+# Traefik Middleware. Runs on the control-plane nodes (private values), the estate's
+# standing pin for tier-1 infra with no worker affinity.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: authentik-outpost
+  namespace: argocd
+  annotations:
+    # Wave 3: the outpost's Traefik Middleware is a traefik.io/v1alpha1 CR, so the
+    # traefik chart (wave 2) must be Healthy first for that CRD to exist; its Ingress
+    # needs traefik + external-dns-private (both wave 2) for the host to route and
+    # resolve; and its token Secret comes from ESO (wave 0). Wave 3 is the earliest
+    # wave that starts only after those are Healthy. It is INDEPENDENT of prometheus
+    # (also wave 3): the outpost does not depend on the app it protects, and the
+    # protected router only references the Middleware once the gated annotation is
+    # added out-of-band (after this app is Healthy).
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # The app ships an ExternalSecret under selfHeal; ESO writes these remoteRef
+  # defaults back, and ArgoCD would otherwise fight it every reconcile. (Same block
+  # as the bifrost / grafana Tier 1.)
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    # NULL chart: bedag `raw` renders only what its .Values.resources lists, which
+    # the private values.yaml sets to [] -> zero objects. Present solely to hold the
+    # 3-source helm-direct shape; all real manifests come from source[2].
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: authentik-outpost
+        valueFiles:
+          - $values/argocd/apps/authentik-outpost/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the Deployment, Service, ExternalSecret, Traefik
+    # Middleware and Ingress) from the private config repo (repoURL injected by the
+    # private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/authentik-outpost/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: authentik-outpost
+  syncPolicy:
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
