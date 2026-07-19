@@ -19,7 +19,7 @@ locals {
     }
 
     authentik = {
-      source = "git::https://github.com/NIXKnight/OpenTofu-Module-Authentik.git?ref=859b87851067274994637ffa8db1b4d89dd03fc2"
+      source = "git::https://github.com/NIXKnight/OpenTofu-Module-Authentik.git?ref=7249ba0d41ba9d5dae6875fe2ee23c77c25a6418"
     }
   }
 }

@@ -51,6 +51,12 @@ dependency "authentik" {
     outpost_tokens = {
       "cluster-proxy" = "mock-outpost-token-not-real"
     }
+    oauth2_client_credentials = {
+      vaultwarden = {
+        client_id     = "mock-client-id-not-real"
+        client_secret = "mock-client-secret-not-real"
+      }
+    }
   }
 }
 
@@ -87,7 +93,17 @@ inputs = {
         }
       }
     },
-    # (b) Internal static entries (future sops-fed secrets live here / are merged here).
+    # (b) authentik vaultwarden OAuth2 client -> <mount>/<vaultwarden_sso_path>, keys
+    # "client_id" / "client_secret" (from the authentik unit's oauth2_client_credentials).
+    {
+      (local.seeds.locals.openbao_secrets.vaultwarden_sso_path) = {
+        data = {
+          client_id     = dependency.authentik.outputs.oauth2_client_credentials["vaultwarden"].client_id
+          client_secret = dependency.authentik.outputs.oauth2_client_credentials["vaultwarden"].client_secret
+        }
+      }
+    },
+    # (c) Internal static entries (future sops-fed secrets live here / are merged here).
     local.seeds.locals.openbao_secrets.static_secrets,
   )
 }
