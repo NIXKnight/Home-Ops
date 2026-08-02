@@ -1,7 +1,6 @@
-# Seeds KV v2 SECRET VALUES into OpenBao for the cluster. First (and only) secret today:
-# the authentik proxy outpost token, written to <mount>/authentik-outpost so the Phase-4
-# ExternalSecret can resolve it and hand it to the cluster proxy outpost. <mount> is the ESO
-# KV v2 mount, single-sourced at runtime from the sibling openbao/kv unit's config.
+# Seeds KV v2 SECRET VALUES into OpenBao for the cluster, including dependency-derived
+# authentik outpost and OAuth2 credentials. <mount> is the ESO KV v2 mount, single-sourced
+# at runtime from the sibling openbao/kv unit's config.
 #
 # LOCAL MODULE: like the sibling openbao/kv and openbao/kubernetes-auth units, the OpenTofu
 # lives in THIS directory (main.tf / providers.tf / variables.tf / versions.tf) -- it is NOT
@@ -35,24 +34,29 @@ locals {
   kv = read_terragrunt_config("${include.root.locals.internal_repo_path}/terragrunt/openbao/kv/unit.hcl")
 }
 
-# Output-passing dependency: the proxy outpost token comes from the authentik unit's
-# outpost_tokens output (map keyed by outpost name; sensitive). mock_outputs let this unit
-# parse / validate / plan before authentik is applied; the placeholder is obviously fake and
-# is never written anywhere real. Mirrors the kubernetes-auth unit's dependency pattern.
+# Output-passing dependency: proxy outpost and OAuth2 credentials come from sensitive
+# authentik outputs. mock_outputs let this unit parse / validate / plan before new outputs
+# exist; placeholders are obviously fake and are never written anywhere real. Mirrors the
+# kubernetes-auth unit's dependency pattern.
 dependency "authentik" {
   config_path = "../../authentik"
 
   mock_outputs_allowed_terraform_commands = ["init", "validate", "plan"]
   # Mocking is binary by default: once the authentik unit has ANY real state outputs,
-  # mock_outputs would be ignored wholesale and a not-yet-existing output hard-errors.
-  # Shallow-merge keeps real outputs authoritative while backfilling missing ones.
-  mock_outputs_merge_strategy_with_state = "shallow"
+  # mock_outputs would be ignored wholesale and a not-yet-existing nested key hard-errors.
+  # Deep-map-only merge keeps real nested values authoritative while backfilling missing
+  # map keys during allowed commands. apply is not allowed, so it requires real outputs.
+  mock_outputs_merge_strategy_with_state = "deep_map_only"
   mock_outputs = {
     outpost_tokens = {
       "cluster-proxy" = "mock-outpost-token-not-real"
     }
     oauth2_client_credentials = {
       vaultwarden = {
+        client_id     = "mock-client-id-not-real"
+        client_secret = "mock-client-secret-not-real"
+      }
+      "new-api" = {
         client_id     = "mock-client-id-not-real"
         client_secret = "mock-client-secret-not-real"
       }
@@ -69,7 +73,7 @@ dependencies {
 }
 
 # The `secrets` input is a map keyed by secret name (path under the mount). It merges:
-#   (a) dependency-derived entries wired HERE (the authentik outpost token), and
+#   (a) dependency-derived entries wired HERE (authentik outpost and OAuth2 credentials), and
 #   (b) static entries authored in the Internal unit.hcl (empty today).
 # NON-secret static secrets need only an Internal edit; the first sops-fed secret needs a
 # one-time sops_decrypt_file wiring here (see the Internal unit.hcl FUTURE note).
@@ -103,7 +107,17 @@ inputs = {
         }
       }
     },
-    # (c) Internal static entries (future sops-fed secrets live here / are merged here).
+    # (c) authentik New API OAuth2 client -> <mount>/<new_api_sso_path>, keys
+    # "client_id" / "client_secret" (from the authentik unit's oauth2_client_credentials).
+    {
+      (local.seeds.locals.openbao_secrets.new_api_sso_path) = {
+        data = {
+          client_id     = dependency.authentik.outputs.oauth2_client_credentials["new-api"].client_id
+          client_secret = dependency.authentik.outputs.oauth2_client_credentials["new-api"].client_secret
+        }
+      }
+    },
+    # (d) Internal static entries (future sops-fed secrets live here / are merged here).
     local.seeds.locals.openbao_secrets.static_secrets,
   )
 }
