@@ -56,10 +56,6 @@ dependency "authentik" {
         client_id     = "mock-client-id-not-real"
         client_secret = "mock-client-secret-not-real"
       }
-      "new-api" = {
-        client_id     = "mock-client-id-not-real"
-        client_secret = "mock-client-secret-not-real"
-      }
     }
   }
 }
@@ -107,17 +103,7 @@ inputs = {
         }
       }
     },
-    # (c) authentik New API OAuth2 client -> <mount>/<new_api_sso_path>, keys
-    # "client_id" / "client_secret" (from the authentik unit's oauth2_client_credentials).
-    {
-      (local.seeds.locals.openbao_secrets.new_api_sso_path) = {
-        data = {
-          client_id     = dependency.authentik.outputs.oauth2_client_credentials["new-api"].client_id
-          client_secret = dependency.authentik.outputs.oauth2_client_credentials["new-api"].client_secret
-        }
-      }
-    },
-    # (d) Internal static entries (future sops-fed secrets live here / are merged here).
+    # (c) Internal static entries (future sops-fed secrets live here / are merged here).
     local.seeds.locals.openbao_secrets.static_secrets,
   )
 }
