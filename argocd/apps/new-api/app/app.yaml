@@ -1,0 +1,75 @@
+---
+# Application: new-api (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source, but source[0] is a NULL
+# chart: New API has no catalog-owned Helm release, so the workload is delivered
+# as raw manifests. source[0] points at the bedag `raw` utility chart, which
+# renders NOTHING when given an empty resources list in the private values file.
+# Every real object (ServiceAccount, Deployment, Service, ExternalSecrets and
+# NetworkPolicies) lives in the private manifests source[2]. This preserves the
+# established 3-source shape without exposing environment configuration here.
+#
+# Chart version, $values path and manifests path are PLACEHOLDERs pinned by the
+# private Tier 2 overlay; private git-source repoURLs are injected there too.
+# Tier 3 adds the cascade finalizer. This public file contains no
+# environment name, hostname, private repository identity or workload secret.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: new-api
+  namespace: argocd
+  annotations:
+    # Wave 3: consumes the shared PostgreSQL Application (wave 2), ESO (wave 0)
+    # and cluster networking. The existing inference service is independent and
+    # may reconcile in the same application wave.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # ESO defaults these remoteRef fields after admission; ignore only those
+  # defaults so self-heal does not fight the controller.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    # NULL chart: private values set resources: []; real objects use source[2].
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: new-api
+        valueFiles:
+          - $values/argocd/apps/new-api/environments/PLACEHOLDER/values.yaml
+    # Ref-only source: exposes $values from the private config repo.
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # Environment-specific raw workload manifests from the private config repo.
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/new-api/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: new-api
+  syncPolicy:
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: restricted
+        pod-security.kubernetes.io/audit: restricted
+        pod-security.kubernetes.io/warn: restricted
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
