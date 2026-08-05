@@ -1,0 +1,103 @@
+---
+# Application: comfyui (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source, but source[0] is a NULL
+# chart: there is no upstream ComfyUI Helm chart, so the workload is raw
+# manifests. source[0] points at the bedag `raw` utility chart, which renders
+# NOTHING when given an empty resources list (see the private values.yaml); every
+# real object (Deployment, Service, Ingress) lives in the private manifests
+# source[2]. This keeps the exact 3-source shape the Tier 2 overlay + Tier 3
+# aggregator already know how to patch (identical to llamacpp / coolercontrol),
+# with no changes to the shared machinery. The chart version, the $values path, and
+# the manifests path are PLACEHOLDERs pinned by the private Tier 2 overlay; the
+# private git-source repoURLs are injected there too. The cascade finalizer is added
+# by the Tier 3 aggregator. The public repo never names the private config repo.
+#
+# WORKLOAD: ComfyUI (node-graph diffusion workflow server) on the GPU worker node
+# (single RTX 3090, 24 GB, compute 8.6). Model weights, custom nodes and generated
+# outputs live on a node hostPath; because a hostPath volume is disallowed under the
+# Baseline/Restricted Pod-Security levels, the auto-created comfyui namespace is
+# labeled enforce=privileged via managedNamespaceMetadata below (llamacpp and
+# gpu-operator use the same block for their hostPath / privileged operands).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: comfyui
+  namespace: argocd
+  annotations:
+    # Wave 3: the workload needs the GPU device-plugin from gpu-operator (wave 1, so
+    # nvidia.com/gpu is allocatable) AND working LAN ingress -- traefik +
+    # external-dns-private (both wave 2) -- for its Ingress host to resolve and
+    # route. Wave 3 is the earliest wave that starts only after those are Healthy.
+    # It shares wave 3 with llamacpp, the other tenant of the same GPU.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # GPU TIME-SHARE TOGGLE: the node has ONE RTX 3090 and it cannot host both the
+  # llama.cpp server and ComfyUI at once, so the Operator hand-scales whichever one
+  # is wanted (`kubectl -n comfyui scale deploy/comfyui --replicas=0|1`). Under
+  # automated selfHeal ArgoCD would immediately re-apply Git's replica count and
+  # undo the toggle, so /spec/replicas is ignored on the Deployment. Paired with
+  # RespectIgnoreDifferences=true below, which extends the ignore from diff
+  # calculation into the sync stage (pre-patching the desired state with the live
+  # value) -- without it selfHeal would still stomp the manual scale. The option is
+  # only effective for resources that already exist; a freshly created Deployment is
+  # applied with the full desired state, so it still gets Git's initial replicas.
+  # Scoped by name to the comfyui Deployment: without it the entry would match every
+  # Deployment this Application manages.
+  # llamacpp carries the identical block (the other side of the same toggle).
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: comfyui
+      jsonPointers:
+        - /spec/replicas
+  sources:
+    # NULL chart: bedag `raw` renders only what its .Values.resources lists, which
+    # the private values.yaml sets to [] -> zero objects. Present solely to hold the
+    # 3-source helm-direct shape; all real manifests come from source[2].
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: comfyui
+        valueFiles:
+          - $values/argocd/apps/comfyui/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the Deployment, Service and Ingress) from the
+    # private config repo (repoURL injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/comfyui/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: comfyui
+  syncPolicy:
+    # The pod mounts a node hostPath (model weights, custom nodes, outputs); hostPath
+    # is forbidden under PSA Baseline/Restricted, so label the auto-created comfyui
+    # namespace enforce=privileged. Nests under syncPolicy per the ArgoCD v3.4
+    # Application schema.
+    managedNamespaceMetadata:
+      labels:
+        pod-security.kubernetes.io/enforce: privileged
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # Carries spec.ignoreDifferences (/spec/replicas) into the sync stage so
+      # selfHeal does not undo the manual GPU time-share scale. See the comment on
+      # ignoreDifferences above.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
