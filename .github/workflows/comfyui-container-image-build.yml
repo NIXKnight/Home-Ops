@@ -1,0 +1,142 @@
+name: Build ComfyUI Container Image
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/comfyui/**"
+      # README-only edits must not fire a ~10 GB GPU-stack rebuild. The build
+      # context contains no COPY sources at all, so the Dockerfile is the only
+      # file in that directory that can change the resulting image.
+      - "!docker/comfyui/README.md"
+      - ".github/workflows/comfyui-container-image-build.yml"
+  # Manual trigger, which the other image builds in this repo do not carry.
+  # This image pins upstream components that move without the Dockerfile
+  # changing, and a ~10 GB publish that fails partway needs a re-run path that
+  # does not require an empty commit.
+  workflow_dispatch:
+    inputs:
+      comfyui_version:
+        description: "ComfyUI release tag to build and publish. Leave empty to use the COMFYUI_VERSION default pinned in docker/comfyui/Dockerfile. Overrides that pin only; torch and ComfyUI-GGUF stay at their Dockerfile defaults."
+        required: false
+        type: string
+        default: ""
+
+# Registry auth is the Docker Hub username/token pair below, and no step here
+# reads or writes the GitHub API, so GITHUB_TOKEN is cut to the one scope the
+# checkout needs.
+permissions:
+  contents: read
+
+# One publish at a time. A push to main and a manual re-pin can otherwise race
+# for the same registry tag, and each run pushes several gigabytes.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The CUDA base and the PyTorch trio make this the slowest build in the repo
+    # by an order of magnitude. The cap exists only so a wedged run cannot hold
+    # a runner for the 6 hour default.
+    timeout-minutes: 180
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # ~10 GB final image, a builder stage of similar size, and a multi-gigabyte
+      # pip cache mount, against a stock runner with roughly 25 GB free. Evicting
+      # the preinstalled toolchains this repository never uses buys back about
+      # 20 GB and is the difference between a green build and ENOSPC partway
+      # through the torch install.
+      - name: Free Runner Disk Space
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL || true
+          sudo docker image prune --all --force || true
+          echo "Disk after cleanup:"
+          df -h /
+
+      # The image tag is the ComfyUI release the image pins, verbatim, so a tag
+      # can never describe a stack the image does not contain. The value comes
+      # from the Dockerfile ARG by default and from the workflow input on a
+      # manual run, and is then fed back in as a --build-arg so that the tag and
+      # the contents stay locked to each other either way.
+      - name: Resolve ComfyUI Version
+        id: comfyui
+        env:
+          VERSION_INPUT: ${{ inputs.comfyui_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${VERSION_INPUT}" ]; then
+            VERSION="${VERSION_INPUT}"
+            SOURCE="workflow input"
+          else
+            VERSION="$(sed -n 's/^ARG COMFYUI_VERSION="\(.*\)"$/\1/p' docker/comfyui/Dockerfile | head -n 1)"
+            SOURCE="Dockerfile ARG"
+          fi
+          case "${VERSION}" in
+            "")
+              echo "::error::COMFYUI_VERSION could not be resolved from docker/comfyui/Dockerfile."
+              exit 1
+              ;;
+            latest)
+              echo "::error::Refusing to publish a floating tag as the version tag."
+              exit 1
+              ;;
+          esac
+          # This value reaches four places that all parse it as trusted: the
+          # step output file, the COMFYUI_VERSION build arg, the comma-separated
+          # tag list, and `git clone --branch` inside the Dockerfile. A newline
+          # in it appends arbitrary step outputs or an extra registry tag, and
+          # any ref-shaped string selects an arbitrary upstream commit, so the
+          # workflow_dispatch input is pinned to one line of release-tag shape
+          # before it is used - or even logged, since the log is itself a
+          # workflow-command channel. The rejection message withholds the value
+          # for that reason; the run's own input panel already shows it. The
+          # Dockerfile-derived value takes the same gate, where it always passes
+          # today and keeps passing only while that ARG stays a release tag.
+          if [[ ! "${VERSION}" =~ ^v[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Rejected ComfyUI version from ${SOURCE}: expected a single line matching ^v[0-9][A-Za-z0-9._-]*\$ (value withheld from the log)."
+            exit 1
+          fi
+          echo "Version from ${SOURCE}: ${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+
+      # The other image builds here push a few hundred megabytes and rely on the
+      # runner's default docker driver, which materialises the finished image in
+      # the local image store before pushing it. At ~10 GB that second on-disk
+      # copy is a real risk, so this build uses a container-driver builder, which
+      # exports straight to the registry instead.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.2.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2.1.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # linux/amd64 only, inherited from the runner: the CUDA base publishes no
+      # arm64 variant for this tag and the target node is an x86_64 RTX 3090.
+      #
+      # No layer cache is wired up on purpose. The torch layers alone are several
+      # gigabytes and would evict everything else from this repository's 10 GB
+      # Actions cache quota on the first run.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v3.2.0
+        with:
+          context: docker/comfyui/
+          push: true
+          build-args: |
+            COMFYUI_VERSION=${{ steps.comfyui.outputs.version }}
+          tags: "${{ secrets.DOCKER_HUB_USERNAME }}/comfyui:latest,${{ secrets.DOCKER_HUB_USERNAME }}/comfyui:${{ steps.comfyui.outputs.version }}"
