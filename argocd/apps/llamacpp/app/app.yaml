@@ -36,6 +36,18 @@ metadata:
     deploymentStrategy: helm-direct
 spec:
   project: infrastructure
+  # GPU TIME-SHARE TOGGLE: the node has ONE RTX 3090 shared with comfyui, so the
+  # Operator hand-scales whichever workload is wanted (`kubectl -n llamacpp scale
+  # deploy/llamacpp --replicas=0|1`); ArgoCD must not fight that manual scale, hence
+  # /spec/replicas is ignored here and RespectIgnoreDifferences=true is set below.
+  # Scoped by name to the llamacpp Deployment: without it the entry would match every
+  # Deployment this Application manages.
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      name: llamacpp
+      jsonPointers:
+        - /spec/replicas
   sources:
     # NULL chart: bedag `raw` renders only what its .Values.resources lists, which
     # the private values.yaml sets to [] -> zero objects. Present solely to hold the
@@ -72,6 +84,9 @@ spec:
       prune: true
     syncOptions:
       - CreateNamespace=true
+      # Carries spec.ignoreDifferences (/spec/replicas) into the sync stage so
+      # selfHeal does not undo the manual GPU time-share scale (see above).
+      - RespectIgnoreDifferences=true
     retry:
       limit: 5
       backoff:
