@@ -1,0 +1,192 @@
+---
+# Application: harbor (Tier 1 base -- STRUCTURE, public).
+#
+# helm-direct archetype WITH a third (manifests) source: the upstream goharbor
+# chart installs every Harbor component (nginx proxy, portal, core, jobservice,
+# registry, bundled Redis); the env-specific ExternalSecrets (admin password,
+# database password, the 16-char secretKey, the OIDC client credentials), the raw
+# Ingress, and the PostSync OIDC-configuration hook live in the private repo at
+# argocd/apps/harbor/environments/<env>/manifests/. The chart version, the $values
+# path, and the manifests path are PLACEHOLDERs pinned by the private Tier 2
+# overlay; the private git-source repoURLs are injected there too. The cascade
+# finalizer is added by the Tier 3 aggregator. The public repo never names the
+# private config repo.
+#
+# WORKLOAD: Harbor -- a CNCF OCI container registry with projects, RBAC, retention
+# policies, replication and a web portal. It backs the estate's own image builds so
+# workloads stop pulling from public registries at deploy time. Its metadata lives in
+# the shared PostgreSQL instance (postgresql app, external database mode); the blob
+# store is a dedicated RWO ZFS volume on the storage worker. The bundled Redis stays
+# internal -- nothing else in the estate runs Redis. The vulnerability scanner (Trivy)
+# is disabled in the environment values on capacity grounds.
+#
+# EXPOSURE: the chart is set to clusterIP with TLS off, so it renders its own nginx
+# proxy Service and NO chart Ingress -- the estate's Traefik-default-TLSStore pattern
+# needs a tls entry with hosts ONLY and no secretName key, which the chart's ingress
+# template cannot express. The LAN Ingress therefore ships as a raw manifest in the
+# private manifests/ source (same reasoning as the vaultwarden / bifrost Tier 1s).
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: harbor
+  namespace: argocd
+  annotations:
+    # Wave 3: needs the shared PostgreSQL (postgresql, wave 2) reachable for its
+    # metadata store, the registry StorageClass from zfs-localpv (wave 1) to bind its
+    # blob PVC, working LAN ingress -- traefik + external-dns-private (both wave 2) --
+    # for its Ingress host to resolve and route, and its Secrets from ESO (wave 0).
+    # Wave 3 is the earliest wave that starts only after those are Healthy.
+    # Consumers that pull images FROM this registry must sync in a LATER wave.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  ignoreDifferences:
+    # (1) ESO. The app ships ExternalSecrets under selfHeal; ESO writes these remoteRef
+    # defaults back, and ArgoCD would otherwise fight it every reconcile. (Same block
+    # as the vaultwarden / bifrost / grafana Tier 1.)
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+    # (2) NON-DETERMINISTIC CHART SECRETS. The goharbor chart tries to preserve these
+    # generated values across upgrades with `lookup "v1" "Secret" ...`, but that guard
+    # is a NO-OP under ArgoCD: the repo-server renders with `helm template` and has no
+    # cluster connection, so lookup always returns empty and the randAlphaNum / genCA /
+    # htpasswd fallbacks fire on EVERY render. (core's tls.crt/tls.key are not even
+    # lookup-guarded -- genCA runs unconditionally.) The values are therefore generated
+    # fresh each time the app is rendered, so without this block the Application never
+    # settles: it is permanently OutOfSync and selfHeal rewrites the generated values on
+    # every reconcile.
+    #
+    # Ignoring the generated keys makes the FIRST sync create them and every later
+    # render a no-op, so the LIVE values persist. RespectIgnoreDifferences=true in
+    # syncOptions below is what makes that true AT SYNC TIME and not merely in the diff
+    # view -- ignoreDifferences alone only suppresses the diff, and a sync triggered by
+    # anything else (a chart bump, a values edit, a manual sync) would still apply the
+    # freshly randomised values. Getting that wrong rotates the token-signing CA under
+    # running clients, which breaks in-flight docker push/pull with token-signature
+    # errors until core and registry restart.
+    #
+    # Scoped by NAME to the four chart-rendered Secrets, and within them to the
+    # generated KEYS only. A blanket `kind: Secret` rule would also swallow legitimate
+    # drift on the four ESO-managed Secrets in this namespace (harbor-admin,
+    # harbor-secretkey, harbor-database, harbor-sso); a whole-`/data` rule would swallow
+    # the deterministic values-derived keys that share these same Secrets
+    # (REGISTRY_CREDENTIAL_PASSWORD in core/jobservice, REGISTRY_REDIS_PASSWORD in
+    # registry), freezing them at their first-sync values if they are ever changed in
+    # values.yaml. Names assume releaseName `harbor` (chart fullname collapses to the
+    # release name when it already contains the chart name).
+    #
+    # RESIDUAL, ACCEPTED: the pinned values then live ONLY in the cluster -- they are in
+    # no git repo and no secret store. Deleting the namespace (or the Secrets) loses
+    # them and Harbor regenerates a new token CA on recreate: existing tokens invalidate
+    # and clients re-authenticate, but no image data is lost (blobs are on the retained
+    # zfs-registry PV, metadata in CNPG). Second residual: because the pod-template
+    # checksums are ignored in (3) below, a deliberate change to a NON-ignored key in
+    # these Secrets will not roll the pods by itself and needs a manual
+    # `kubectl -n harbor rollout restart deploy/...`. If either residual ever matters,
+    # the documented upgrade path is the stronger fix: ESO-managed Secrets sourced from
+    # OpenBao wired to core.existingSecret / core.existingXsrfSecret / core.secretName /
+    # jobservice.existingSecret / registry.existingSecret, plus
+    # registry.credentials.htpasswdString -- at which point the chart stops generating
+    # anything and this whole block can be deleted.
+    - group: ""                        # core API group
+      kind: Secret
+      name: harbor-core
+      jsonPointers:
+        - /data/secret                 # randAlphaNum 16
+        - /data/CSRF_KEY               # randAlphaNum 32
+        - /data/tls.crt                # genCA "harbor-token-ca" -- the token-signing CA
+        - /data/tls.key                # ditto, its private key
+    - group: ""
+      kind: Secret
+      name: harbor-jobservice
+      jsonPointers:
+        - /data/JOBSERVICE_SECRET      # randAlphaNum 16
+    - group: ""
+      kind: Secret
+      name: harbor-registry
+      jsonPointers:
+        - /data/REGISTRY_HTTP_SECRET   # randAlphaNum 16
+    - group: ""
+      kind: Secret
+      name: harbor-registry-htpasswd
+      jsonPointers:
+        - /data/REGISTRY_HTPASSWD      # htpasswd bcrypt -- random salt every render
+    # (3) The other half of the same defect. The chart stamps the pod templates of core,
+    # jobservice and registry with `checksum/secret*` annotations computed by
+    # re-rendering the very Secret templates above, so those annotations churn on every
+    # render too. Ignoring the Secrets alone would leave the three Deployments
+    # permanently OutOfSync, and selfHeal would stamp a new pod-template hash -- i.e.
+    # restart the registry -- on every reconcile pass, cutting in-flight pushes and
+    # pulls. Only the secret-derived checksums are listed: `checksum/configmap` and
+    # `checksum/configmap-env` are deterministic and stay live, so a real values.yaml
+    # change still rolls the pods as intended.
+    - group: apps
+      kind: Deployment
+      name: harbor-core
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations["checksum/secret"]'
+        - '.spec.template.metadata.annotations["checksum/secret-jobservice"]'
+    - group: apps
+      kind: Deployment
+      name: harbor-jobservice
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations["checksum/secret"]'
+        - '.spec.template.metadata.annotations["checksum/secret-core"]'
+    - group: apps
+      kind: Deployment
+      name: harbor-registry
+      jqPathExpressions:
+        - '.spec.template.metadata.annotations["checksum/secret"]'
+        - '.spec.template.metadata.annotations["checksum/secret-core"]'
+        - '.spec.template.metadata.annotations["checksum/secret-jobservice"]'
+  sources:
+    - repoURL: https://helm.goharbor.io
+      chart: harbor
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: harbor
+        valueFiles:
+          - $values/argocd/apps/harbor/environments/PLACEHOLDER/values.yaml
+    # ref-only source: exposes $values from the private config repo (repoURL
+    # injected by the private Tier 2 overlay; no render).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    # env-specific raw manifests (the ExternalSecrets, the LAN Ingress and the
+    # PostSync OIDC-configuration hook) from the private config repo (repoURL
+    # injected by the private Tier 2 overlay).
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/harbor/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: harbor
+  syncPolicy:
+    # No managedNamespaceMetadata: every Harbor container runs unprivileged, non-root,
+    # with all capabilities dropped and a RuntimeDefault seccomp profile (chart-default
+    # containerSecurityContext), and no component mounts a hostPath. The namespace
+    # therefore needs no Pod-Security label override -- unlike the GPU/hostPath apps.
+    automated:
+      selfHeal: true
+      prune: true
+    syncOptions:
+      - CreateNamespace=true
+      # Carries spec.ignoreDifferences into the sync stage, pre-patching the desired
+      # state with the live values instead of applying the freshly generated ones. This
+      # is the half that actually stops the token-signing CA from rotating; without it
+      # the churn is merely hidden from the diff view. Only effective for resources that
+      # already exist -- the first sync still creates the Secrets from the render, which
+      # is exactly the intent. See the ignoreDifferences comment above.
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
