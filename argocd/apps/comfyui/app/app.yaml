@@ -25,12 +25,14 @@ metadata:
   name: comfyui
   namespace: argocd
   annotations:
-    # Wave 3: the workload needs the GPU device-plugin from gpu-operator (wave 1, so
+    # Wave 4: the workload needs the GPU device-plugin from gpu-operator (wave 1, so
     # nvidia.com/gpu is allocatable) AND working LAN ingress -- traefik +
     # external-dns-private (both wave 2) -- for its Ingress host to resolve and
-    # route. Wave 3 is the earliest wave that starts only after those are Healthy.
-    # It shares wave 3 with llamacpp, the other tenant of the same GPU.
-    argocd.argoproj.io/sync-wave: "3"
+    # route. Moved up from wave 3 because its container image is now pulled from the
+    # in-cluster OCI registry (harbor), which occupies wave 3: the registry must be
+    # Healthy and serving before this pod's image pull can succeed.
+    # It no longer shares a wave with llamacpp, the other tenant of the same GPU.
+    argocd.argoproj.io/sync-wave: "4"
   labels:
     deploymentStrategy: helm-direct
 spec:
