@@ -56,6 +56,13 @@ dependency "authentik" {
         client_id     = "mock-client-id-not-real"
         client_secret = "mock-client-secret-not-real"
       }
+      # Every application key consumed below needs an entry here: deep_map_only backfills
+      # only keys that are MISSING from real state, so a consumed-but-unmocked key hard-
+      # errors on plan the moment authentik has state. Added with the harbor wiring.
+      harbor = {
+        client_id     = "mock-client-id-not-real"
+        client_secret = "mock-client-secret-not-real"
+      }
     }
   }
 }
@@ -103,7 +110,19 @@ inputs = {
         }
       }
     },
-    # (c) Internal static entries (future sops-fed secrets live here / are merged here).
+    # (c) authentik Harbor OAuth2 client -> <mount>/<harbor_sso_path>, keys "client_id" /
+    # "client_secret" (from the authentik unit's oauth2_client_credentials). Harbor's
+    # PostSync OIDC hook Job reads them out of the ESO-synced Secret and PUTs them to the
+    # Harbor configurations API as oidc_client_id / oidc_client_secret.
+    {
+      (local.seeds.locals.openbao_secrets.harbor_sso_path) = {
+        data = {
+          client_id     = dependency.authentik.outputs.oauth2_client_credentials["harbor"].client_id
+          client_secret = dependency.authentik.outputs.oauth2_client_credentials["harbor"].client_secret
+        }
+      }
+    },
+    # (d) Internal static entries (future sops-fed secrets live here / are merged here).
     local.seeds.locals.openbao_secrets.static_secrets,
   )
 }
