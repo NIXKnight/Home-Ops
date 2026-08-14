@@ -1,0 +1,219 @@
+name: Build vLLM Container Image
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docker/vllm/**"
+      # README-only edits must not fire a multi-gigabyte GPU-stack rebuild. Two
+      # files in that directory can change the resulting image - the Dockerfile
+      # and sanity_check.py, which it bind-mounts and runs as the build's gate -
+      # and the wildcard above already covers both. A README is read by neither.
+      - "!docker/vllm/README.md"
+      - ".github/workflows/vllm-container-image-build.yml"
+  # Manual trigger, matching the sibling comfyui workflow and for the same
+  # reason: this image is built on an ~8.7 GB base, and a publish that fails
+  # partway needs a re-run path that does not require an empty commit.
+  #
+  # Deliberately carries NO version inputs, unlike comfyui. Every pin in this
+  # image is part of a matched set - the base image, the vLLM version in the
+  # tag, and the two plugin version/commit pairs the builder asserts against
+  # their source trees - so a single-value override could only ever publish a
+  # tag that misdescribes its contents. Re-pin in the Dockerfile instead.
+  workflow_dispatch:
+
+# Registry auth is the Docker Hub username/token pair below, and no step here
+# reads or writes the GitHub API, so GITHUB_TOKEN is cut to the one scope the
+# checkout needs.
+permissions:
+  contents: read
+
+# One publish at a time. A push to main and a manual re-run can otherwise race
+# for the same registry tag, and each run pushes several gigabytes.
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    # The vLLM base image and an nvcc pass over the plugin's CUDA kernels put
+    # this alongside comfyui as one of the slowest builds in the repo. The cap
+    # exists only so a wedged run cannot hold a runner for the 6 hour default.
+    timeout-minutes: 180
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v3
+
+      # An ~8.7 GB base image as the registry counts it, a builder stage layered
+      # on top of it, and an apt toolchain in that builder, against a stock
+      # runner with roughly 14 GiB free. Evicting the preinstalled toolchains
+      # this repository never uses buys back about 20 GiB and is the difference
+      # between a green build and ENOSPC partway through. Both figures are GiB,
+      # as df reports them and as the floor at the end of this step is expressed.
+      #
+      # The reclaim itself is best-effort; the floor check at the end of this
+      # step is what actually enforces the outcome, so a cleanup that quietly
+      # freed nothing fails here with a legible message instead of surfacing as
+      # a "no space left on device" halfway through an hour-long build.
+      - name: Free Runner Disk Space
+        run: |
+          set -euo pipefail
+          echo "Disk before cleanup:"
+          df -h /
+
+          # rm -rf exits 0 on paths this runner image does not ship, and the
+          # preinstalled toolchain set changes between runner releases, so
+          # absent entries here are expected and tolerated.
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /usr/local/.ghcup \
+            /opt/ghc \
+            /opt/hostedtoolcache/CodeQL || true
+
+          # Separate from the rm above, and NOT silenced: the runner's preloaded
+          # image set is the single largest reclaim available here, and a prune
+          # that cannot run at all means the docker daemon is unhealthy before
+          # buildx is even set up. Better to say so than to fail later.
+          if ! sudo docker image prune --all --force; then
+            echo "::error::docker image prune failed; the runner's preloaded images were not reclaimed and the daemon may be unhealthy."
+            exit 1
+          fi
+
+          echo "Disk after cleanup:"
+          df -h /
+
+          # Hard floor, derived from what this build puts on / at peak:
+          #   ~8.7 GB  compressed base layers in the builder's content store
+          #   ~20 GB   the same layers unpacked into the snapshot store, which
+          #            both stages share - the base is unpacked once
+          #   ~2.5 GB  builder stage: build-essential, cuda-cudart-dev, nvcc
+          #            output and the wheel build scratch
+          #   ~1 GB    final stage layers and the export streamed to the push
+          # The bitsandbytes plugin is pure Python and bitsandbytes, LMCache and
+          # their few support pins are prebuilt wheels well under a gigabyte
+          # combined, so none of them move this arithmetic; the floor is
+          # unchanged at 30 GiB.
+          # ~30 GB, and 30 GiB is therefore the floor rather than a comfortable
+          # margin above it: a run that clears it by a few gigabytes is still
+          # tight. It is set to catch a cleanup regression - a runner release
+          # that drops one of the evicted toolchains, or a prune that reclaims
+          # nothing - not to certify headroom. A working eviction leaves roughly
+          # 34 GiB, so this fires on regression, not on normal variance. Raise it
+          # if a future VLLM_IMAGE re-pin grows the base.
+          REQUIRED_GIB=30
+          AVAIL_KIB="$(df --output=avail -k / | tail -n 1 | tr -d '[:space:]')"
+          AVAIL_GIB=$(( AVAIL_KIB / 1024 / 1024 ))
+          echo "Available on /: ${AVAIL_GIB} GiB (floor ${REQUIRED_GIB} GiB)"
+          if [ "${AVAIL_GIB}" -lt "${REQUIRED_GIB}" ]; then
+            echo "::error::Only ${AVAIL_GIB} GiB free on / after cleanup; this build needs at least ${REQUIRED_GIB} GiB and would fail with ENOSPC mid-build. Extend the eviction list in this step or move the build to a larger runner."
+            exit 1
+          fi
+
+      # The image tag is composed from the four pins that define this image:
+      # the vLLM release it is built on, and the vllm-gguf-plugin,
+      # vllm-bnb-plugin and LMCache releases it adds. All are read out of the
+      # Dockerfile, so a tag can never describe a stack the image does not
+      # contain. The in-tree LoRA resolvers install nothing and so are absent
+      # from the tag by design.
+      - name: Resolve Image Version
+        id: version
+        run: |
+          set -euo pipefail
+
+          VLLM_IMAGE="$(sed -n 's/^ARG VLLM_IMAGE="\(.*\)"$/\1/p' docker/vllm/Dockerfile | head -n 1)"
+          VLLM_VERSION="$(sed -n 's/^ARG VLLM_VERSION="\(.*\)"$/\1/p' docker/vllm/Dockerfile | head -n 1)"
+          PLUGIN_VERSION="$(sed -n 's/^ARG PLUGIN_VERSION="\(.*\)"$/\1/p' docker/vllm/Dockerfile | head -n 1)"
+          BNB_PLUGIN_VERSION="$(sed -n 's/^ARG BNB_PLUGIN_VERSION="\(.*\)"$/\1/p' docker/vllm/Dockerfile | head -n 1)"
+          LMCACHE_VERSION="$(sed -n 's/^ARG LMCACHE_VERSION="\(.*\)"$/\1/p' docker/vllm/Dockerfile | head -n 1)"
+
+          # These five expressions are a contract with the Dockerfile: each
+          # ARG must stay on one line, double-quoted, with nothing trailing, or
+          # the value resolves empty and this run fails by design.
+          if [ -z "${VLLM_IMAGE}" ] || [ -z "${VLLM_VERSION}" ] || [ -z "${PLUGIN_VERSION}" ] \
+             || [ -z "${BNB_PLUGIN_VERSION}" ] || [ -z "${LMCACHE_VERSION}" ]; then
+            echo "::error::Could not resolve VLLM_IMAGE, VLLM_VERSION, PLUGIN_VERSION, BNB_PLUGIN_VERSION and LMCACHE_VERSION from docker/vllm/Dockerfile."
+            exit 1
+          fi
+
+          # The four checked below are the tag fragments: each reaches the
+          # comma-separated registry tag list, which parses them as trusted, so
+          # a newline in any of them appends an extra registry tag and each is
+          # pinned to one line of release-tag shape first. VLLM_IMAGE is not one
+          # of them - it never reaches the tag, and is only cross-checked
+          # against VLLM_VERSION further down.
+          if [[ ! "${VLLM_VERSION}" =~ ^v[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Rejected VLLM_VERSION: expected a single line matching ^v[0-9][A-Za-z0-9._-]*\$."
+            exit 1
+          fi
+          if [[ ! "${PLUGIN_VERSION}" =~ ^[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Rejected PLUGIN_VERSION: expected a single line matching ^[0-9][A-Za-z0-9._-]*\$."
+            exit 1
+          fi
+          if [[ ! "${BNB_PLUGIN_VERSION}" =~ ^[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Rejected BNB_PLUGIN_VERSION: expected a single line matching ^[0-9][A-Za-z0-9._-]*\$."
+            exit 1
+          fi
+          if [[ ! "${LMCACHE_VERSION}" =~ ^[0-9][A-Za-z0-9._-]*$ ]]; then
+            echo "::error::Rejected LMCACHE_VERSION: expected a single line matching ^[0-9][A-Za-z0-9._-]*\$."
+            exit 1
+          fi
+
+          # VLLM_VERSION only labels and names the image; VLLM_IMAGE is what
+          # actually gets built on. Drift between them would publish a tag that
+          # lies about the vLLM inside, so they are checked against each other.
+          case "${VLLM_IMAGE}" in
+            *:"${VLLM_VERSION}") ;;
+            *)
+              echo "::error::VLLM_IMAGE does not end in :\${VLLM_VERSION}; the two pins in docker/vllm/Dockerfile have drifted apart."
+              exit 1
+              ;;
+          esac
+
+          TAG="${VLLM_VERSION}-gguf${PLUGIN_VERSION}-bnb${BNB_PLUGIN_VERSION}-lmcache${LMCACHE_VERSION}"
+          echo "Base image:  ${VLLM_IMAGE}"
+          echo "Image tag:   ${TAG}"
+          {
+            echo "vllm_version=${VLLM_VERSION}"
+            echo "plugin_version=${PLUGIN_VERSION}"
+            echo "bnb_plugin_version=${BNB_PLUGIN_VERSION}"
+            echo "lmcache_version=${LMCACHE_VERSION}"
+            echo "tag=${TAG}"
+          } >> "$GITHUB_OUTPUT"
+
+      # The smaller image builds in this repo rely on the runner's default
+      # docker driver, which materialises the finished image in the local image
+      # store before pushing it. On an ~8.7 GB base that second on-disk copy is
+      # a real risk, so this build uses a container-driver builder, which
+      # exports straight to the registry instead.
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2.2.1
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v2.1.0
+        with:
+          username: ${{ secrets.DOCKER_HUB_USERNAME }}
+          password: ${{ secrets.DOCKER_HUB_TOKEN }}
+
+      # linux/amd64 only, and stated explicitly rather than inherited from the
+      # runner: the vLLM base does publish an arm64 variant, so without this
+      # a future emulated build could be attempted for a CUDA image that has
+      # exactly one target, an x86_64 host with an RTX 3090.
+      #
+      # No layer cache is wired up on purpose. The base layers alone are
+      # several gigabytes and would evict everything else from this
+      # repository's 10 GB Actions cache quota on the first run.
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v3.2.0
+        with:
+          context: docker/vllm/
+          platforms: linux/amd64
+          push: true
+          build-args: |
+            VLLM_VERSION=${{ steps.version.outputs.vllm_version }}
+            PLUGIN_VERSION=${{ steps.version.outputs.plugin_version }}
+            BNB_PLUGIN_VERSION=${{ steps.version.outputs.bnb_plugin_version }}
+            LMCACHE_VERSION=${{ steps.version.outputs.lmcache_version }}
+          tags: "${{ secrets.DOCKER_HUB_USERNAME }}/vllm:latest,${{ secrets.DOCKER_HUB_USERNAME }}/vllm:${{ steps.version.outputs.tag }}"
