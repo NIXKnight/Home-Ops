@@ -1,0 +1,4 @@
+# Local byte-code from editing the two scripts beside the Dockerfile; nothing
+# here is COPYed. Anything excluded is also unavailable to RUN --mount=type=bind,
+# so never widen this to a pattern that could match those scripts.
+__pycache__/

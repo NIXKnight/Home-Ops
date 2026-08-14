@@ -5,10 +5,12 @@ on:
       - main
     paths:
       - "docker/vllm/**"
-      # README-only edits must not fire a multi-gigabyte GPU-stack rebuild. Two
-      # files in that directory can change the resulting image - the Dockerfile
-      # and sanity_check.py, which it bind-mounts and runs as the build's gate -
-      # and the wildcard above already covers both. A README is read by neither.
+      # README-only edits must not fire a multi-gigabyte GPU-stack rebuild.
+      # Four files in that directory can change the resulting image - the
+      # Dockerfile, the two scripts it bind-mounts and runs (sanity_check.py
+      # as the build's gate, patch_bnb_op.py as the apply_bnb_4bit patch), and
+      # .dockerignore, whose patterns govern bind-source availability - and the
+      # wildcard above already covers all four. A README is read by none.
       - "!docker/vllm/README.md"
       - ".github/workflows/vllm-container-image-build.yml"
   # Manual trigger, matching the sibling comfyui workflow and for the same
@@ -37,9 +39,11 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    # The vLLM base image and an nvcc pass over the plugin's CUDA kernels put
-    # this alongside comfyui as one of the slowest builds in the repo. The cap
-    # exists only so a wedged run cannot hold a runner for the 6 hour default.
+    # The vLLM base image and two nvcc passes - the GGUF plugin's kernels and
+    # LMCache's, the latter compiled here since torch 2.13 broke the ABI its
+    # published wheels are built against - put this alongside comfyui as one of
+    # the slowest builds in the repo. The cap exists only so a wedged run cannot
+    # hold a runner for the 6 hour default.
     timeout-minutes: 180
     steps:
       - name: Checkout Repository
@@ -89,14 +93,18 @@ jobs:
           #   ~8.7 GB  compressed base layers in the builder's content store
           #   ~20 GB   the same layers unpacked into the snapshot store, which
           #            both stages share - the base is unpacked once
-          #   ~2.5 GB  builder stage: build-essential, cuda-cudart-dev, nvcc
-          #            output and the wheel build scratch
+          #   ~3.5 GB  builder stage: build-essential, the CUDA dev packages
+          #            (cudart, and cusparse/cusolver for the ATen headers
+          #            LMCache's kernels include), nvcc output for two CUDA
+          #            extension sets, and the wheel build scratch, which is
+          #            deleted inside its own RUN rather than committed
           #   ~1 GB    final stage layers and the export streamed to the push
-          # The bitsandbytes plugin is pure Python and bitsandbytes, LMCache and
-          # their few support pins are prebuilt wheels well under a gigabyte
-          # combined, so none of them move this arithmetic; the floor is
-          # unchanged at 30 GiB.
-          # ~30 GB, and 30 GiB is therefore the floor rather than a comfortable
+          # The bitsandbytes plugin is pure Python, and bitsandbytes plus the few
+          # support pins are prebuilt wheels well under a gigabyte combined, so
+          # neither moves this arithmetic. LMCache does: since the ABI break in
+          # torch 2.13 it is compiled here rather than installed from PyPI, which
+          # is where that builder figure grew from ~2.5 GB.
+          # ~31 GB, and 30 GiB is therefore the floor rather than a comfortable
           # margin above it: a run that clears it by a few gigabytes is still
           # tight. It is set to catch a cleanup regression - a runner release
           # that drops one of the evicted toolchains, or a prune that reclaims

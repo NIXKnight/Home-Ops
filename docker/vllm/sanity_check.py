@@ -8,7 +8,9 @@ it checks against arrive through os.environ.
 
 import ctypes
 import importlib
+import json
 import os
+import subprocess
 import sys
 from importlib.metadata import PackageNotFoundError, distribution, entry_points, version
 from pathlib import Path
@@ -70,6 +72,23 @@ EXPECTED_LMCACHE = os.environ.get("LMCACHE_VERSION", "").strip()
 EXPECTED_TORCH = os.environ.get("TORCH_VERSION", "").strip()
 if not all((EXPECTED_VLLM, EXPECTED_PLUGIN, EXPECTED_BNB, EXPECTED_LMCACHE, EXPECTED_TORCH)):
     fail("the version pins were not all passed into this gate; the pin coherence checks cannot run")
+
+# This script loads both plugins itself, by hand, in an order check 6 depends
+# on: vLLM's in-tree bitsandbytes has to still own the registry at the moment
+# the plugin's entry point is resolved. vLLM's own autoloader would get there
+# first and make that observation meaningless, so it is switched off for this
+# process. Unset means "load every plugin discovered"; the empty string parses
+# to [""], an allowlist matching no plugin name - vllm/envs.py says "if this is
+# set to an empty string, no plugins will be loaded" and vllm/plugins/__init__
+# repeats it. Asserted rather than assumed, because a gate that silently lost
+# this would still pass while testing something other than what it claims.
+if os.environ.get("VLLM_PLUGINS") != "":
+    fail(
+        "VLLM_PLUGINS must reach this gate as the empty string so vLLM's "
+        "autoloader stays out of it; got "
+        f"{os.environ.get('VLLM_PLUGINS')!r}. The check 7 subprocess drops it "
+        "again to exercise the autoloading path a real serve takes."
+    )
 
 # 1. Entry point metadata. Pure metadata - nothing is imported yet.
 try:
@@ -203,6 +222,15 @@ print(f"config class OK: {NAME!r} -> {cfg.__module__}.{cfg.__name__}")
 #    SHADOWS the in-tree implementation instead of filling a gap. What has to
 #    be proven is therefore which side wins, so resolution is read before and
 #    after register() and the two must differ.
+#
+#    Shadowing is also why the Dockerfile patches both copies of the
+#    vllm::apply_bnb_4bit registration before this runs. Fork and original
+#    define that op into the same torch library, at import time, unguarded, and
+#    torch rejects the second define - so the two cannot be imported into one
+#    process at all unless the registration is idempotent. get_quantization_config
+#    above has already imported the in-tree module (it imports every config
+#    module on every call), which makes the entry point load below the second
+#    half of that pair and this section the place the collision would surface.
 try:
     bnb_dist = distribution("vllm-bnb-plugin")
 except PackageNotFoundError:
@@ -256,9 +284,53 @@ if before_cfg.__module__.split(".")[0] != "vllm":
     )
 print(f"in-tree bitsandbytes present: {BNB_NAME!r} -> {before_cfg.__module__}.{before_cfg.__name__}")
 
+# The import that would raise "Tried to register an operator (vllm::
+# apply_bnb_4bit) with the same name and overload name multiple times" if the
+# Dockerfile's idempotency patch were missing or had stopped matching: the
+# in-tree module registered that op a few lines ago, and importing the plugin
+# runs the fork's copy of the same registration.
 bnb_register = bnb_ep.load()
 if not callable(bnb_register):
     fail(f"entry point target resolved to {type(bnb_register).__name__}, not a callable")
+print("entry point loaded: plugin imported alongside vLLM's in-tree bitsandbytes")
+
+# One op, one owner. torch caches an OpOverloadPacket per registered op and
+# hands the same object back on every lookup, so both modules being bound to
+# that one object is what proves a single registration is in force and that
+# both implementations dispatch through it. A guard that skipped the define but
+# also skipped the binding would leave a module holding something else, or
+# nothing, and only fail on the first quantized layer mid-serve.
+try:
+    import vllm.model_executor.layers.quantization.bitsandbytes as vllm_intree_bnb  # noqa: E402
+    from vllm_bnb_plugin.quantization import linear as plugin_bnb_linear  # noqa: E402
+except ImportError as exc:
+    fail(
+        f"one of the two modules that register vllm::apply_bnb_4bit will no "
+        f"longer import ({exc}); upstream moved a registration and the "
+        "idempotency patch in the Dockerfile needs re-reading"
+    )
+
+registered_op = getattr(torch.ops.vllm, "apply_bnb_4bit", None)
+if registered_op is None:
+    fail(
+        "vllm::apply_bnb_4bit is not registered after both bitsandbytes "
+        "implementations were imported; the op both sides dispatch 4-bit "
+        "matmuls through is missing and neither could serve"
+    )
+if plugin_bnb_linear.apply_bnb_4bit is not registered_op:
+    fail(
+        "vllm_bnb_plugin.quantization.linear.apply_bnb_4bit is not the "
+        "registered vllm::apply_bnb_4bit op; the plugin's 4-bit path is bound "
+        "to something else"
+    )
+if vllm_intree_bnb.apply_bnb_4bit is not registered_op:
+    fail(
+        "vllm.model_executor.layers.quantization.bitsandbytes.apply_bnb_4bit "
+        "is not the registered vllm::apply_bnb_4bit op; the in-tree module is "
+        "bound to something else"
+    )
+print("custom op OK: vllm::apply_bnb_4bit registered once, both implementations bound to it")
+
 bnb_register()
 
 after_cfg = get_quantization_config(BNB_NAME)
@@ -344,7 +416,125 @@ if not hasattr(bnb_lib, "get_context"):
     )
 print(f"bitsandbytes backend OK: {bnb_lib_path.name} loads and is CUDA-built")
 
-# 7. LMCache. No entry point is involved: vLLM's KVConnectorFactory already
+# 7. The order a serve actually takes. Everything above ran in this script's
+#    order - vLLM's in-tree bitsandbytes first, because get_quantization_config
+#    imports it, then the plugin - and that is the reverse of what a container
+#    does. `vllm serve` calls load_general_plugins() from
+#    AsyncEngineArgs.add_cli_args(), while the CLI parser is still being built,
+#    so the plugin is imported before any quantization config is resolved and
+#    the in-tree module arrives second, inside engine config resolution where
+#    nothing catches an exception. The two orders are not the same test: the
+#    idempotency patch has to hold in both, and only one of them can be run per
+#    interpreter, so this one is a child process.
+#
+#    It is also the only check here driven by vLLM's own plugin machinery
+#    rather than by this script: VLLM_PLUGINS is removed from the child's
+#    environment, so load_general_plugins() takes its default "load everything"
+#    path exactly as an unconfigured serve does, and the documented
+#    VLLM_PLUGINS=gguf,bitsandbytes,lora_filesystem_resolver allowlist is a
+#    filtered subset of it. load_plugins_by_group() swallows and logs a failed
+#    plugin load, so a plugin that died on import leaves no trace in the exit
+#    status - the registry lookups below are what would catch it.
+# The child reports through a file rather than stdout: vLLM logs freely there,
+# including from threads it starts itself, and a gate that had to find its
+# answer in that stream would be one interleaved line away from failing a good
+# image. sys.argv[1] under `python3 -c` is the first argument after the script.
+RUNTIME_ORDER_PROBE = """
+import json
+import sys
+
+from vllm.plugins import load_general_plugins
+
+load_general_plugins()
+
+from vllm.model_executor.layers.quantization import get_quantization_config
+from vllm.model_executor.model_loader import _LOAD_FORMAT_TO_MODEL_LOADER
+
+bnb_cfg = get_quantization_config("bitsandbytes")
+gguf_cfg = get_quantization_config("gguf")
+loader = _LOAD_FORMAT_TO_MODEL_LOADER.get("bitsandbytes")
+
+with open(sys.argv[1], "w") as handle:
+    json.dump(
+        {
+            "bitsandbytes_config": f"{bnb_cfg.__module__}.{bnb_cfg.__name__}",
+            "gguf_config": f"{gguf_cfg.__module__}.{gguf_cfg.__name__}",
+            "bitsandbytes_loader": (
+                None if loader is None else f"{loader.__module__}.{loader.__name__}"
+            ),
+        },
+        handle,
+    )
+"""
+
+# The child gets a serve's environment, not this gate's: VLLM_PLUGINS goes so
+# vLLM autoloads, and the pin variables go with it because they exist only for
+# the checks above and VLLM_VERSION would otherwise sit in vLLM's own
+# VLLM_-prefixed namespace being reported as unrecognised.
+GATE_ONLY_ENV = frozenset(
+    (
+        "VLLM_PLUGINS",
+        "VLLM_VERSION",
+        "PLUGIN_VERSION",
+        "BNB_PLUGIN_VERSION",
+        "LMCACHE_VERSION",
+        "TORCH_VERSION",
+    )
+)
+probe_env = {
+    key: value for key, value in os.environ.items() if key not in GATE_ONLY_ENV
+}
+# Written under /tmp, which this RUN's bind mount already occupies, and removed
+# before the layer is committed - like sanity_check.py itself, nothing this gate
+# creates belongs in the finished image.
+probe_report = Path("/tmp/vllm_serve_order_probe.json")
+probe = subprocess.run(  # noqa: S603
+    [sys.executable, "-c", RUNTIME_ORDER_PROBE, str(probe_report)],
+    env=probe_env,
+    capture_output=True,
+    text=True,
+    check=False,
+)
+if probe.returncode != 0:
+    tail = "\n".join((probe.stderr or probe.stdout).strip().splitlines()[-25:])
+    fail(
+        "a fresh interpreter that autoloads the plugins the way `vllm serve` "
+        "does, then resolves a quantization config the way engine startup "
+        f"does, exited {probe.returncode}. This is the serve path, so the "
+        f"image cannot start a quantized model:\n{tail}"
+    )
+if not probe_report.is_file():
+    fail(
+        "the serve-order child exited 0 but wrote no report; it did not reach "
+        "the end of the probe"
+    )
+try:
+    probe_result = json.loads(probe_report.read_text())
+except ValueError as exc:
+    fail(f"the serve-order child's report is not JSON ({exc})")
+probe_report.unlink()
+
+for probe_key, probe_owner in (
+    ("bitsandbytes_config", "vllm_bnb_plugin"),
+    ("bitsandbytes_loader", "vllm_bnb_plugin"),
+    ("gguf_config", "vllm_gguf_plugin"),
+):
+    resolved = probe_result.get(probe_key)
+    if not isinstance(resolved, str) or resolved.split(".")[0] != probe_owner:
+        fail(
+            f"under vLLM's own plugin autoloading, {probe_key} resolves to "
+            f"{resolved}, not to {probe_owner}. load_plugins_by_group logs a "
+            "failed plugin load and carries on, so this is what a plugin that "
+            "died on import looks like from the outside: the server comes up "
+            "and serves something else"
+        )
+print(
+    "serve order OK: autoloaded plugins own "
+    f"{probe_result['bitsandbytes_config']}, {probe_result['bitsandbytes_loader']} "
+    f"and {probe_result['gguf_config']} in a fresh interpreter"
+)
+
+# 8. LMCache. No entry point is involved: vLLM's KVConnectorFactory already
 #    knows LMCacheConnectorV1, and the lmcache import sits inside that
 #    connector's __init__, so a missing dependency surfaces only when an engine
 #    is built with --kv-transfer-config, minutes into a serve. Every import on
@@ -391,8 +581,9 @@ c_ops_matches = sorted(pkg_dir.glob("c_ops*.so"))
 if len(c_ops_matches) != 1:
     fail(
         f"expected exactly one c_ops*.so in {pkg_dir}, found "
-        f"{[p.name for p in c_ops_matches]}; the lmcache wheel installed here is "
-        "not the manylinux build this image is pinned to"
+        f"{[p.name for p in c_ops_matches]}; the wheel the builder compiled no "
+        "longer carries exactly one CUDA extension under that name, and this "
+        "check is testing something other than what it claims"
     )
 c_ops_path = c_ops_matches[0]
 try:
@@ -401,7 +592,10 @@ except OSError as exc:
     fail(
         f"the compiled extension {c_ops_path.name} will not load ({exc}). "
         "lmcache logs one line about it and serves KV offload on its torch "
-        "fallback, so this is the only place it can be caught."
+        "fallback, so this is the only place it can be caught. An undefined "
+        "c10:: or at:: symbol here means the extension was compiled against a "
+        "different libtorch than this image's, which is the state every wheel "
+        "LMCache publishes is in and the reason the builder compiles its own."
     )
 if not hasattr(c_ops_lib, "PyInit_c_ops"):
     fail(
