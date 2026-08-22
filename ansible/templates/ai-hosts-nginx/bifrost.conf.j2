@@ -1,0 +1,57 @@
+# {{ ansible_managed }}
+#
+# Bifrost vhost — terminates TLS for {{ AI_NGINX_BIFROST_FQDN }} and proxies to
+# the LLM gateway running as its own compose project on this host. Rendered by
+# playbooks/ai-hosts.yml (tag `nginx`) and mounted at
+# /etc/nginx/conf.d/03_bifrost.conf. TLS parameters and the $connection_upgrade
+# map are inherited from 01_nginx_top_level.conf; nothing ssl_* belongs here.
+#
+# One upstream port serves everything Bifrost exposes: the inference API, the
+# dashboard, /health and /metrics. The dashboard and admin API are protected by
+# the gateway's own credentials (BIFROST_AUTH_ENABLED in the Internal
+# config-bifrost.yml); this proxy neither adds nor removes that.
+
+# Resolved once, at configuration load. host.docker.internal comes from the
+# extra_hosts/host-gateway mapping in the compose manifest and is present in this
+# container's /etc/hosts from creation, so nginx starts regardless of whether the
+# ai-bifrost unit is running; a stopped backend yields 502 per request.
+upstream bifrost {
+  server {{ AI_NGINX_BIFROST_UPSTREAM }};
+}
+
+server {
+  listen {{ AI_NGINX_HTTP_PORT }};
+  server_name {{ AI_NGINX_BIFROST_FQDN }};
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen {{ AI_NGINX_HTTPS_PORT }} ssl;
+  server_name {{ AI_NGINX_BIFROST_FQDN }};
+
+  location / {
+    proxy_pass http://bifrost;
+
+    # HTTP/1.1 to the upstream: required for chunked bodies, keep-alive and the
+    # upgrade handshake the dashboard uses.
+    proxy_http_version 1.1;
+
+    # The gateway relays the backend's token stream, so the same buffering and
+    # timeout reasoning as the vLLM vhost applies end to end — a response that
+    # survives 02_vllm.conf and then stalls here has gained nothing.
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_read_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+    proxy_send_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+
+    # Dashboard live updates ride an Upgrade handshake; the http-scope map turns
+    # this into a passthrough for those requests and "close" for everything else.
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}

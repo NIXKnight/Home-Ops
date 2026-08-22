@@ -1,0 +1,33 @@
+# {{ ansible_managed }}
+#
+# Retention for the per-container files that rsyslog.d/22-docker.conf writes out
+# of the Docker syslog stream. Rendered to /etc/logrotate.d/docker-containers by
+# playbooks/setup_system.yml through the linux-common role's LC_MISC_TEMPLATES
+# interface. No systemd action is needed for this half of the chain: Debian runs
+# logrotate from the logrotate.timer unit, which is enabled by the package.
+#
+# The glob deliberately covers docker.log (daemon and containerd) as well as the
+# per-container files, so nothing under /var/log/docker is left unrotated.
+/var/log/docker/*.log {
+    # Checked daily, but minsize holds a quiet log back until it is worth
+    # rotating, and maxsize forces a rotation mid-day if a container floods.
+    # 90 rotations is roughly a quarter of history for incident work.
+    daily
+    rotate 90
+    minsize 200M
+    maxsize 500M
+    missingok
+    notifempty
+    compress
+    delaycompress
+    # copytruncate keeps the inode rsyslog already holds open, so the rotation
+    # does not depend on rsyslog reopening its files. `create` is therefore
+    # inert here; it is kept as the documented target mode should copytruncate
+    # ever be dropped in favour of a reopen-based rotation.
+    copytruncate
+    create 0640 root adm
+    sharedscripts
+    postrotate
+        /usr/lib/rsyslog/rsyslog-rotate 2>/dev/null || true
+    endscript
+}

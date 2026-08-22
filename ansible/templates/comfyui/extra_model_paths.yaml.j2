@@ -1,0 +1,19 @@
+# {{ ansible_managed }}
+#
+# ComfyUI extra model paths — rendered by playbooks/ai-hosts.yml (tag `comfyui`)
+# into the ComfyUI checkout, where the server picks it up on its own: a file
+# named extra_model_paths.yaml sitting in ComfyUI's base directory is loaded at
+# startup with no --extra-model-paths-config flag involved.
+#
+# SHAPE. Each top-level key is an arbitrary config name (it only has to be
+# unique); under it `base_path` is a directory on THIS host and every other key
+# is a folder TYPE — diffusion_models, text_encoders, vae, loras, clip_vision —
+# whose value is a path relative to base_path. `unet` is the legacy spelling of
+# diffusion_models and ComfyUI still maps it onto the same folder list, so a tree
+# laid out with an unet/ directory needs no rename, only the right key here.
+#
+# The content is COMFYUI_EXTRA_MODEL_PATHS in the Internal group_vars, which is
+# also where the reasoning for each tree lives. Editing it there and re-running
+# --tags comfyui re-renders this file AND restarts the unit in the same pass,
+# because python-venv-app counts a changed template as a change.
+{{ COMFYUI_EXTRA_MODEL_PATHS | to_nice_yaml(indent=2, sort_keys=false) }}

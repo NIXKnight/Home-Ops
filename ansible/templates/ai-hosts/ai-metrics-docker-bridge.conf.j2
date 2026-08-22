@@ -1,0 +1,46 @@
+# {{ ansible_managed }}
+#
+# Boot-ordering hardening for {{ AI_METRICS_SERVICE_NAME }}.service, the compose
+# unit that runs node-exporter and dcgm-exporter. Both of them end up bound to
+# the docker bridge address — node-exporter directly, through
+# --web.listen-address, and dcgm-exporter through a published port whose host
+# side is that address — and a bind to an address that does not exist yet fails
+# outright rather than waiting. docker0 does not exist until dockerd creates it.
+#
+# The role's own unit already carries Requires=/After=docker.service, and that
+# covers the ordinary case. This drop-in covers the residual interval the estate
+# has already recorded once, on coolercontrold
+# (templates/ai-hosts/coolercontrold-docker-bridge.conf.j2): docker.service can
+# report started a moment before the interface is usable, and the compose unit's
+# ExecStart is `docker compose up -d`, which returns non-zero when a published
+# port cannot be bound. One retry five seconds later is the whole recovery.
+#
+# RESTART= IS LEGAL ON A ONESHOT UNIT — this one specifically. The role's unit is
+# Type=oneshot with RemainAfterExit=yes, and systemd rejects only Restart=always
+# and Restart=on-success for that type ("Type=oneshot services will never be
+# restarted on a clean exit status, i.e. always and on-success are rejected for
+# them", systemd.service(5), systemd 257 — the version Debian 13 ships and this
+# host runs). on-failure is accepted, and its trigger table covers exactly the
+# three ways this unit can fail: unclean exit code, unclean signal, timeout.
+#
+# THE START LIMIT IS THE PART THAT IS NOT IN THE COOLERCONTROL PRECEDENT, and the
+# unit type is why. coolercontrold is a long-running daemon whose crash loop is
+# obvious; this one wraps a command that does real work on every attempt. With
+# systemd's defaults (10s window, 5 starts) a 5s RestartSec never accumulates
+# enough starts inside the window to trip the limiter, so a genuine failure — a
+# tag that does not exist, a GPU that is gone — would re-run `docker compose up
+# -d` every five seconds forever, quietly, into syslog. Twelve attempts over
+# three minutes is far more than docker0 has ever needed, and after that the unit
+# stays failed where `systemctl --failed` can be seen to say so.
+#
+# Rendered by playbooks/ai-hosts.yml (tag `metrics`) into
+# /etc/systemd/system/{{ AI_METRICS_SERVICE_NAME }}.service.d/, so the unit file
+# the docker-compose-service role writes is left untouched and a role change
+# replaces it without taking this with it.
+[Unit]
+StartLimitIntervalSec=180
+StartLimitBurst=12
+
+[Service]
+Restart=on-failure
+RestartSec=5

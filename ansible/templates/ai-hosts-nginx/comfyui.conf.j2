@@ -1,0 +1,84 @@
+# {{ ansible_managed }}
+#
+# ComfyUI vhost — terminates TLS for {{ AI_NGINX_COMFYUI_FQDN }} and proxies to the
+# ComfyUI instance running as a bare-metal virtualenv service on this host (unit
+# comfyui.service, not a compose project). Rendered by playbooks/ai-hosts.yml
+# (tag `nginx`) and mounted at /etc/nginx/conf.d/06_comfyui.conf. TLS parameters
+# and the $connection_upgrade map are inherited from 01_nginx_top_level.conf;
+# nothing ssl_* belongs here.
+#
+# THIS VHOST CARRIES A UI, NOT JUST AN API. ComfyUI serves the web editor and its
+# HTTP API from the same listener, and the editor is unusable without the
+# WebSocket at /ws: queue position, execution progress and the "done" event all
+# arrive on it, and the REST calls alone never report that a prompt finished. The
+# Upgrade/Connection pair below is therefore mandatory rather than defensive, and
+# proxy_buffering off matters for the same reason — a buffered preview stream
+# reaches the browser in blocks and the progress bar jumps instead of moving.
+#
+# THE BACKEND HAS NO AUTHENTICATION. ComfyUI ships none, and this deployment adds
+# none: anyone who can reach {{ AI_NGINX_COMFYUI_FQDN }} can queue work on the GPU
+# and read every generated file. Same recorded posture as the two inference
+# vhosts next door — the LAN is the trust boundary, Operator-ruled for the first
+# run, not an oversight.
+#
+# EXPECT 502 WHENEVER COMFYUI IS NOT THE ONE HOLDING THE GPU: this host has one
+# card and three claimants, so comfyui.service is stopped and boot-disabled while
+# vLLM or llama.cpp owns it. nginx enforces nothing here; it proxies whatever is
+# listening and 502s when nothing is. The single-backend rule lives in
+# playbooks/ai-hosts.yml, and ownership moves by running the other tag.
+
+# Resolved once, at configuration load. host.docker.internal is written into this
+# container's /etc/hosts by the extra_hosts/host-gateway mapping in the compose
+# manifest, so it always resolves and never blocks nginx from starting — a stopped
+# comfyui.service produces 502 on request, not a boot failure. That the upstream
+# is a host process rather than a container changes nothing here: it publishes on
+# the same docker bridge address the compose backends do.
+upstream comfyui {
+  server {{ AI_NGINX_COMFYUI_UPSTREAM }};
+}
+
+server {
+  listen {{ AI_NGINX_HTTP_PORT }};
+  server_name {{ AI_NGINX_COMFYUI_FQDN }};
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen {{ AI_NGINX_HTTPS_PORT }} ssl;
+  server_name {{ AI_NGINX_COMFYUI_FQDN }};
+
+  location / {
+    proxy_pass http://comfyui;
+
+    # HTTP/1.1 to the upstream. The default is 1.0, which has neither the
+    # chunked request body nor the keep-alive a WebSocket upgrade needs — a 1.0
+    # proxy_pass cannot carry /ws at all.
+    proxy_http_version 1.1;
+
+    # Preview and progress streaming. Without this nginx accumulates the
+    # response in its own buffers and releases it in blocks, which does not
+    # break correctness but makes a running workflow look frozen until it ends.
+    proxy_buffering off;
+    proxy_request_buffering off;
+
+    # A long render holds the connection open with no bytes flowing between
+    # steps, and an idle /ws socket sends nothing at all between events. nginx's
+    # 60s default read timeout closes both, and the UI reacts by losing the
+    # queue rather than by reporting an error.
+    proxy_read_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+    proxy_send_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+
+    # WebSocket passthrough via the http-scope map. Unlike the inference vhosts
+    # this is a hard requirement, not a courtesy: /ws is how the editor learns
+    # that anything happened. For an ordinary request $connection_upgrade is
+    # "close", which costs nothing — the upstream block declares no keepalive
+    # pool, so nginx opens a connection per request either way.
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}

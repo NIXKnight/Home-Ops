@@ -1,0 +1,80 @@
+# {{ ansible_managed }}
+#
+# CoolerControl vhost — terminates TLS for {{ AI_NGINX_COOLER_FQDN }} and proxies
+# to coolercontrold, the fan-control daemon on this host. Rendered by
+# playbooks/ai-hosts.yml (tag `nginx`) and mounted at
+# /etc/nginx/conf.d/05_cooler.conf. TLS parameters and the $connection_upgrade
+# map are inherited from 01_nginx_top_level.conf; nothing ssl_* belongs here.
+#
+# THE UPSTREAM IS NOT A COMPOSE SERVICE. coolercontrold is an apt package driven
+# by systemd — group_vars/ai_hosts/main.yml installs it and setup_system.yml
+# enables it — so unlike the three vhosts next door there is no unit named after
+# this one and no container to inspect. The `coolercontrol` tag in
+# playbooks/ai-hosts.yml moves the daemon's listener onto the docker bridge
+# address and declares this name an allowed origin; a 502 here means the daemon
+# is stopped or still bound to loopback.
+#
+# THE DAEMON'S OWN PASSWORD IS THE ONLY AUTHENTICATION. This proxy adds
+# encryption and a name and nothing else, the same recorded limitation the vLLM
+# and Bifrost vhosts carry. What is behind it writes fan speeds to the
+# motherboard, so treat reachability here as hardware control, not as a
+# read-only dashboard.
+
+# Resolved once, at configuration load. host.docker.internal is written into this
+# container's /etc/hosts by the extra_hosts/host-gateway mapping in the compose
+# manifest, so it always resolves and never blocks nginx from starting. It also
+# forces the daemon's bind address: this container arrives at the host over the
+# bridge interface, never over loopback, which is why COOLERCONTROL_BIND_ADDRESS
+# is the docker bridge address and the stock 127.0.0.1 default would 502 here.
+upstream cooler {
+  server {{ AI_NGINX_COOLER_UPSTREAM }};
+}
+
+server {
+  listen {{ AI_NGINX_HTTP_PORT }};
+  server_name {{ AI_NGINX_COOLER_FQDN }};
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen {{ AI_NGINX_HTTPS_PORT }} ssl;
+  server_name {{ AI_NGINX_COOLER_FQDN }};
+
+  location / {
+    proxy_pass http://cooler;
+
+    # HTTP/1.1 to the upstream. The default is 1.0, which has neither keep-alive
+    # nor the upgrade handshake, and the UI's live channel needs both.
+    proxy_http_version 1.1;
+
+    # The UI is driven by Server-Sent Events: one response held open for the life
+    # of the page. proxy_buffering off releases each event as it arrives instead
+    # of accumulating them, and proxy_cache off is the upstream project's own
+    # instruction — free here, where no cache zone is defined, and correct the
+    # day one is.
+    proxy_buffering off;
+    proxy_request_buffering off;
+    proxy_cache off;
+
+    # 24h, deliberately NOT the shared AI_NGINX_PROXY_TIMEOUT. proxy_read_timeout
+    # is idle time between chunks, and an idle SSE stream on a machine whose fans
+    # are not changing sends nothing at all; a dashboard left open overnight
+    # outlives the one-hour budget the inference vhosts use. This is the value the
+    # upstream project's own nginx example carries.
+    proxy_read_timeout {{ AI_NGINX_COOLER_PROXY_TIMEOUT }};
+    proxy_send_timeout {{ AI_NGINX_COOLER_PROXY_TIMEOUT }};
+
+    # WebSocket/upgrade passthrough via the http-scope map, as in the sibling
+    # vhosts; "close" for every ordinary request.
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    # X-Forwarded-Proto is load-bearing rather than decorative on this vhost. The
+    # daemon's `protocol_header` setting points at it, and without it the daemon
+    # sees a plain-HTTP request and answers with its own redirect back out of TLS.
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}

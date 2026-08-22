@@ -1,0 +1,21 @@
+# {{ ansible_managed }}
+#
+# coolercontrold listens on the docker bridge address rather than loopback so the
+# ai-nginx container can reach it through host.docker.internal — see
+# group_vars/ai_hosts/config-coolercontrol.yml for why that is the only address
+# that works from a container. docker0 does not exist until dockerd creates it,
+# and a bind to an absent address fails outright rather than waiting, so at boot
+# this unit has to follow docker.service. Restart=on-failure covers the residual
+# race the ordering cannot: docker.service reports started a moment before the
+# interface is usable, and one retry five seconds later is the whole recovery.
+#
+# Rendered by playbooks/ai-hosts.yml (tag `coolercontrol`) into
+# /etc/systemd/system/coolercontrold.service.d/, so the packaged unit is left
+# untouched and an upstream update replaces it without taking this with it.
+[Unit]
+After=docker.service
+Wants=docker.service
+
+[Service]
+Restart=on-failure
+RestartSec=5

@@ -1,0 +1,71 @@
+# {{ ansible_managed }}
+#
+# ai-nginx top-level configuration — the http-scope half of the TLS terminator
+# that fronts the vLLM and Bifrost services on the AI host. Rendered by
+# playbooks/ai-hosts.yml (tag `nginx`) from group_vars/ai_hosts/config-nginx.yml
+# and bind-mounted at /etc/nginx/conf.d/01_nginx_top_level.conf, so everything
+# here lands inside the stock image's http{} block. Mirrors the gateway's
+# templates/nginx/nginx.conf.j2 in role and shape.
+#
+# The numeric mount prefix is load-bearing: nginx includes conf.d/*.conf in
+# lexical order, and the ssl_* and map directives below must be parsed before the
+# vhosts in 02_/03_ that inherit them.
+
+# NGINX HTTP Core Module Parameters
+tcp_nopush on;
+tcp_nodelay on;
+types_hash_max_size 2048;
+server_names_hash_bucket_size 64;
+server_tokens off;
+
+# NGINX Auto Index Module Parameters
+autoindex off;
+
+# NGINX HTTP Headers Module Parameters
+#
+# Inherited by both vhosts. Neither vhost declares an add_header of its own on
+# purpose: add_header does not merge across levels, so a single directive in a
+# location block would silently drop all three of these for that location.
+add_header X-Frame-Options SAMEORIGIN;
+add_header X-Content-Type-Options nosniff;
+add_header X-XSS-Protection "1; mode=block";
+
+# Request body ceiling. The image default of 1m is smaller than a long
+# conversation replayed as context or a base64 image in a multimodal request, and
+# nginx answers 413 rather than truncating, so the failure is loud but total.
+client_max_body_size {{ AI_NGINX_CLIENT_MAX_BODY_SIZE }};
+
+# WebSocket upgrade map, declared exactly once at http scope and consumed by both
+# vhosts. On the gateway this map lives in monitoring.conf.j2 and re-declaring it
+# in another file there is a hard startup error ("duplicate map"); this is a
+# separate nginx instance with its own conf.d, so the declaration belongs here,
+# where both vhosts can see it and neither owns it.
+map $http_upgrade $connection_upgrade {
+  default upgrade;
+  '' close;
+}
+
+# NGINX HTTP SSL Module Parameters
+#
+# One wildcard certificate, at http scope, inherited by every server block — the
+# same arrangement as the gateway, and the reason neither vhost carries an ssl_*
+# directive. The files are produced by the acme role under the `acme` tag and
+# bind-mounted read-only; nginx opens them once at startup, which is why the
+# renewal path restarts this unit through acme.sh's persisted reloadcmd rather
+# than relying on the files changing underneath a running process.
+#
+# STARTUP DEPENDENCY: nginx refuses to start if either file is missing. `--tags
+# acme` must have completed once before `--tags nginx` is first run.
+ssl_protocols TLSv1.2 TLSv1.3;
+ssl_session_cache shared:SSL:10m;
+ssl_session_timeout 10m;
+ssl_prefer_server_ciphers on;
+ssl_certificate {{ ACME_FULLCHAIN_FILE_PATH }};
+ssl_certificate_key {{ ACME_KEY_FILE_PATH }};
+# Cipher list covers BOTH key types deliberately. ssl_ciphers governs TLS 1.2
+# only (TLS 1.3 suites are not configurable here), and acme.sh's default domain
+# key type has changed across releases, so an RSA-only list would leave a TLS 1.2
+# client with no usable suite the day the certificate is issued as ECDSA. This is
+# the gateway's list corrected: its ...GCM-SHA512 entries name suites that do not
+# exist in TLS and are silently discarded by OpenSSL.
+ssl_ciphers 'ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA384';

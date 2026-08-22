@@ -1,0 +1,730 @@
+---
+# ai-hosts — the container services that run on the standalone GPU host
+# (cawl-inferior: Debian 13, one RTX 3090, 32 GB RAM, nvidia-open 610.x driver,
+# nvidia-container-toolkit with CDI). The host itself — CUDA/toolkit apt repos,
+# kernel driver, nouveau blacklist, docker daemon.json nvidia runtime, operator
+# dotfiles — is built by playbooks/setup_system.yml through group_vars/ai_hosts;
+# this play only lands the workloads on top of it.
+#
+# EIGHT TAGS, TWO PLAYS. The first play issues the TLS certificate; the second
+# deploys five compose services — each its own compose project and its own
+# systemd unit, so each is a separate application of docker-compose-service —
+# adds one bare-metal virtualenv service (ComfyUI, through python-venv-app), and
+# converges the host's fan-control daemon, which is an apt package rather than a
+# container. Every one of them carries its own tag:
+#
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags acme
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags vllm
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags llamacpp
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags comfyui
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags bifrost
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags coolercontrol
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags metrics
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags nginx
+#
+# A FULL DEPLOY NAMES ONE BACKEND. An untagged run drives all three GPU backends
+# and is refused — see the exclusivity note below — so a from-scratch build is:
+#
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags acme,vllm,bifrost,coolercontrol,metrics,nginx
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags acme,llamacpp,bifrost,coolercontrol,metrics,nginx
+#   ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags acme,comfyui,bifrost,coolercontrol,metrics,nginx
+#
+# ONE GPU, THREE BACKENDS, NEVER MORE THAN ONE — AND THE PLAY ENFORCES IT, within
+# the known exception classes below. ai-vllm, ai-llamacpp and comfyui each claim
+# the whole RTX 3090 (vLLM at 0.90 utilisation, llama.cpp at -ngl 999, ComfyUI by
+# holding a diffusion model and its working tensors for the life of the process),
+# so the second to start fails.
+#
+# COMFYUI IS NOT A COMPOSE SERVICE. It is a virtualenv under /opt/comfyui driven
+# by a comfyui.service unit, both written by the python-venv-app role, and it
+# reads its weights from the same models root ai-vllm owns. Nothing else about it
+# is special: it is a GPU claimant like the other two, the tag is the claim, and
+# the guard below treats all three identically.
+#
+# THE TAG YOU RUN IS THE OWNERSHIP DECLARATION. pre_tasks stop and boot-disable
+# the OTHER backends before any role runs; the role then starts and enables the
+# one being deployed. Switching is just running another tag — no systemctl steps:
+#
+#     ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags vllm      # vLLM owns the GPU
+#     ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags llamacpp  # llama.cpp owns it
+#     ansible-playbook -i <inv> playbooks/ai-hosts.yml --tags comfyui   # ComfyUI owns it
+#
+# AT MOST ONE, NOT EXACTLY ONE. A successful BACKEND DEPLOYMENT run (--tags vllm,
+# --tags llamacpp or --tags comfyui) leaves exactly one backend ENABLED and
+# started, and the others stopped and disabled, at runtime and across reboots;
+# runs that drive no backend change no backend's state. The flip is not
+# transactional, so a run that fails partway aborts loudly and may leave ZERO
+# backends running. It can never leave two — for every invocation that neither
+# overrides play variables nor bypasses sequencing, and on a host whose systemctl
+# reports truthfully.
+#
+# "STARTED" IS NOT "SERVING": the compose units wrap `docker compose up -d`, which
+# returns before the model has loaded, and comfyui.service goes active as soon as
+# python is running — it loads weights per workflow, so it answers the editor long
+# before it can render anything. The healthcheck owns readiness for the compose
+# backends (600s) and the vhost 502s until whichever backend is deployed is up.
+# Under --check the claim and refusal logic still evaluates — a multi-backend run
+# is refused — while systemd and service changes are reported, not applied.
+#
+# KNOWN EXCEPTION CLASSES — operational boundaries, not an exhaustive enumeration;
+# anything overriding the play's inputs or acting on the host outside this run
+# belongs to them, listed or not:
+#   * Any variable-precedence source overriding play variables, service names
+#     included — host_vars, alternate inventory or vars plugins outrank group_vars
+#     with no command-line trace, as --extra-vars does.
+#   * Discovery false negatives: the stop forgives the module's not-found message,
+#     which a misreporting systemctl can also produce for a live unit.
+#   * Any actor mutating unit state between the stop and the role's start.
+#   * --start-at-task and --step, which skip part of the guard chain.
+#   * No lock or mask is taken, by design.
+# Running one deployment at a time retires the sequencing classes only. Skipping
+# the other two backends with --skip-tags deploys the remaining one alone and
+# passes, but the explicit --tags form is the documented interface.
+#
+# Both roles' tasks are dynamic includes, and a dynamic include hands its own tags
+# to every task it pulls in, so the role tag gates the whole deployment path for
+# that service and nothing leaks between them. Ansible only collapses a role
+# listed twice in one play when BOTH applications carry identical parameters;
+# every parameter below differs, so all five docker-compose-service applications
+# run, and python-venv-app is listed once in any case.
+#
+# ORDER MATTERS ON A FIRST DEPLOY. nginx opens its certificate at startup and
+# refuses to start without it, so `--tags acme` must succeed at least once before
+# `--tags nginx`. The file order below is the deployment order: certificate,
+# then backend, then terminator, and a multi-tag run walks it in that order.
+#
+# FAN CONTROL IS NOT A CONTAINER. `--tags coolercontrol` drives no compose
+# service: coolercontrold is an apt package setup_system.yml installs, and this
+# play only moves its listener onto the docker bridge and names cooler.<zone> an
+# allowed origin for the terminator to proxy. It sits in pre_tasks because roles
+# run before tasks and the daemon must converge before the vhost fronting it; the
+# rest, including why a UI-owned file is edited key by key, is at the block.
+#
+# MONITORING IS NOT A GPU CLAIMANT. `--tags metrics` deploys ai-metrics, a fifth
+# compose project holding node-exporter and dcgm-exporter, and it is deliberately
+# absent from the AI_GPU_BACKENDS map below: a backend run neither stops it nor
+# is stopped by it, and it records no claim, so adding `metrics` to any tag list
+# cannot trip the single-backend refusal. dcgm-exporter takes the same CDI device
+# reference the inference backends do, which grants device VISIBILITY and not a
+# memory allocation — the counter list it is pointed at (Home-Ops
+# templates/metrics/dcgm-counters.csv) activates no DCGM_FI_PROF_* field, so no
+# profiling context is opened and no framebuffer is reserved. That is an
+# acceptance test on the deployed host, not a promise this file can keep.
+#
+# The tag also renders a systemd drop-in for the ai-metrics unit, in pre_tasks
+# for the same reason the coolercontrol block is there — see that block, and the
+# template's own header, for what the drop-in covers and why Restart= is legal on
+# a Type=oneshot unit.
+#
+# FILE MANAGEMENT IS ROLE-NATIVE, exactly as in playbooks/astropath.yml and
+# playbooks/talos-logs.yml. Each service ships its configuration through the
+# role's own templates interface (secret-bearing items carry `no_log: true` and
+# mode 0600), and those renders feed the role's change-detection in
+# create_update_service.yml, so rotating a secret or re-pointing a model
+# re-renders the file AND restarts the unit in the same run. The one exception is
+# the TSIG keyfile in the first play, which has no compose service to hang off —
+# see the note there.
+#
+# NETWORKING. The compose backends bind their published ports to the docker bridge
+# address rather than 0.0.0.0 or 127.0.0.1, and nginx is the only service exposed
+# on the LAN — the two exporters included, by two different routes: dcgm-exporter
+# publishes onto that address like the backends do, and node-exporter runs in the
+# host network namespace and binds it directly with --web.listen-address. That choice is not cosmetic and the reasoning lives in the Internal
+# config-vllm.yml: a container reaching `host.docker.internal` arrives on the
+# bridge gateway address, so a loopback-published port is unreachable to it while
+# a bridge-published port is unreachable to the LAN. Bifrost reaches vLLM, and
+# nginx reaches both, over that address;
+# nothing off-host can reach those ports, as measured — an actor already on the
+# host is a different question and is covered by the exception classes. ComfyUI
+# arrives at the same place by another route: it publishes nothing, binding
+# --listen to the bridge address and loopback itself, so nginx reaches it and the
+# LAN does not.
+#
+# TLS ENCRYPTS, IT DOES NOT AUTHENTICATE. vLLM has no authentication of its own
+# (see docker/vllm/Dockerfile), neither has llama.cpp nor ComfyUI, and this play
+# adds none — it adds names, certificates, and the removal of the plaintext LAN
+# listeners. Bifrost keeps its own dashboard and admin credentials. Treat the LAN
+# as the trust boundary for the inference APIs and for the ComfyUI editor, which
+# additionally hands out every file it has generated, until an API-level decision
+# is made.
+
+- name: Provision the wildcard TLS certificate for the AI host services
+  hosts: ai_hosts
+  # Nothing in this play reads a fact: the acme role is four tasks (git clone,
+  # mkdir, shell, cron) and the two below address fixed paths. The service play
+  # gathers, so a bare run still has facts where they are used.
+  gather_facts: false
+  become: true
+  tags:
+    - acme
+  # pre_tasks rather than tasks: a play runs roles BEFORE tasks, and the keyfile
+  # has to exist before acme.sh is invoked, not after.
+  pre_tasks:
+    # Deliberately not inside ACME_HOME_DIR. acme.sh's `--cron` pass walks the
+    # directories in its config home and treats each as a certificate it owns, so
+    # a key directory there would be picked up as a domain named after it. 0700
+    # because the only thing in it is key material.
+    - name: Create the TSIG Key Directory
+      ansible.builtin.file:
+        path: "{{ ACME_NSUPDATE_KEY_DIR }}"
+        state: directory
+        mode: "0700"
+        owner: "root"
+        group: "root"
+
+    # WHY THIS IS A PLAY TASK AND NOT AN LC_MISC_TEMPLATES ENTRY.
+    #
+    # The estate's general vehicle for arbitrary host files is linux-common's
+    # LC_MISC_TEMPLATES, and group_vars/ai_hosts/main.yml already uses it for the
+    # docker daemon config and the rsyslog/logrotate drop-ins. It is the wrong
+    # vehicle for this one file, for two independent reasons:
+    #
+    #   1. That role's template task exposes no per-item `no_log`, unlike
+    #      docker-compose-service's, so a `--diff` run would print the rendered
+    #      TSIG secret to the terminal and into any CI log. Rendering it here is
+    #      the only way to get no_log without editing the shared collection.
+    #
+    #   2. LC_MISC_TEMPLATES is applied by setup_system.yml, a different
+    #      playbook. Delivering the key there would mean `--tags acme` could not
+    #      stand on its own, and a key rotation would need two plays run in the
+    #      right order.
+    #
+    # If linux-common later grows the same per-item no_log/diff pair that
+    # docker-compose-service already has, this becomes a one-line move into
+    # main.yml and the second reason still argues against it.
+    # The key is shared estate-wide, not minted per consumer, so both the
+    # template and the file it writes are named for the relay rather than for
+    # this host. Identity, algorithm and secret all come from the Internal
+    # inventory (config-acme.yml / secrets-acme.yml).
+    - name: Render the Astropath TSIG Key File
+      ansible.builtin.template:
+        src: "{{ ansible_config_file | dirname }}/templates/ai-hosts/astropath-tsig.key.j2"
+        dest: "{{ ACME_NSUPDATE_KEY_FILE }}"
+        mode: "0600"
+        owner: "root"
+        group: "root"
+      no_log: true
+  roles:
+    # NIXKnight/Ansible-Acme (external-roles/acme). Applied to this group rather
+    # than by joining the gateway's `acme` group: group_vars/all/config-acme.yml
+    # describes the gateway's HE-account certificate and is in scope here, so the
+    # host takes its overrides from group_vars/ai_hosts/config-acme.yml instead.
+    # Every ACME_* value that must differ is shadowed there; see that file for
+    # the wildcard-only constraint and the staging-first CA choice.
+    - role: acme
+
+- name: Deploy AI host services (vLLM, llama.cpp and ComfyUI GPU backends, Bifrost LLM gateway, CoolerControl exposure, nginx TLS terminator)
+  hosts: ai_hosts
+  gather_facts: true
+  become: true
+  # docker-compose-service comes from nixknight.docker and python-venv-app from
+  # nixknight.general. Both are addressed by short name rather than FQCN because
+  # ansible-core validates a fully qualified role reference against
+  # ^\w+(\.\w+){2,}$ and \w excludes the hyphens in both role names.
+  collections:
+    - nixknight.docker
+    - nixknight.general
+  # THE GPU CLAIMANTS: tag -> unit name. One map drives every exclusivity block
+  # below, so adding a fourth backend is an entry here plus its own claim block
+  # rather than an edit to N-1 hand-written stop tasks that can silently fall out
+  # of step. The unit names are read from each service's own Internal config file,
+  # so a rename there cannot leave the guard pointing at a unit that no longer
+  # exists — which would be a stop the module forgives as "not found".
+  vars:
+    AI_GPU_BACKENDS:
+      vllm: "{{ VLLM_SERVICE_NAME }}"
+      llamacpp: "{{ LLAMACPP_SERVICE_NAME }}"
+      comfyui: "{{ COMFYUI_SERVICE_NAME }}"
+  # SINGLE-GPU EXCLUSIVITY. pre_tasks run before roles, so the outgoing backend is
+  # stopped and boot-disabled before the incoming one's role starts it. The
+  # invariant and its known exception classes are stated in the play header.
+  #
+  # No post-run "is it up" verification task: the role already fails when the unit
+  # will not start, and the unit is oneshot around `docker compose up -d`, so
+  # "active" would not prove the model loaded — the container healthcheck owns that.
+  pre_tasks:
+    # THREE BLOCKS, ONE SHAPE, ONE PER GPU BACKEND. Each runs ONLY under its own
+    # tag and does the same three things: record the claim, prove the record was
+    # not shadowed, then stop and boot-disable every OTHER entry of
+    # AI_GPU_BACKENDS. The stop list is derived from that map instead of being
+    # written out per pair, so the blocks cannot drift apart and a backend added
+    # to the map is disabled by the two existing claims without touching them.
+    - name: Hand the GPU to vLLM
+      tags:
+        - vllm
+      block:
+        # Tag arithmetic is bypassable — reserved tags select every tagged task;
+        # claims record what actually ran.
+        - name: Record the vLLM Claim on the GPU
+          ansible.builtin.set_fact:
+            ai_gpu_claims: "{{ ai_gpu_claims | default([]) + ['vllm'] }}"
+
+        # Extra-vars outrank set_fact; writing and re-reading the claim inside the
+        # same run catches a pinned list. Membership is not proof of write: a list
+        # already naming more than one backend is caught by the refusal instead.
+        - name: Confirm the vLLM Claim Was Recorded and Not Shadowed
+          ansible.builtin.fail:
+            msg: >-
+              The GPU-claim variable did not take the value this play just wrote,
+              so the single-backend guard cannot be trusted. This almost always
+              means ai_gpu_claims was set on the command line with --extra-vars,
+              which outranks set_fact. Remove that override and re-run.
+          when: ai_gpu_claims is not defined or 'vllm' not in ai_gpu_claims
+
+        # Unconditional by design: guards that consulted a variable proved
+        # shadowable by higher-precedence sources, or able to read a stale or
+        # partial unit inventory. The register serves only this task's failed_when,
+        # which a loop evaluates per item; nothing downstream consumes it. Masked
+        # units are a clean no-op here.
+        #
+        # Sole tolerated failure: the module's "Could not find the requested
+        # service" (a backend not yet deployed on this host — the normal state of
+        # at least one of the other two). It is a substring match, so it correlates
+        # with discovery reporting found=false rather than proving absence — as
+        # trustworthy as systemctl on this host. All else fatal.
+        - name: Stop and Boot-Disable Every Other GPU Backend
+          ansible.builtin.systemd_service:
+            name: "{{ item.value }}"
+            state: stopped
+            enabled: false
+          loop: "{{ AI_GPU_BACKENDS | dict2items | rejectattr('key', 'equalto', 'vllm') | list }}"
+          loop_control:
+            label: "{{ item.value }}"
+          register: ai_vllm_stop_result
+          failed_when: >-
+            ai_vllm_stop_result.failed | default(false)
+            and 'Could not find the requested service'
+                not in (ai_vllm_stop_result.msg | default(''))
+
+    - name: Hand the GPU to llama.cpp
+      tags:
+        - llamacpp
+      block:
+        - name: Record the llama.cpp Claim on the GPU
+          ansible.builtin.set_fact:
+            ai_gpu_claims: "{{ ai_gpu_claims | default([]) + ['llamacpp'] }}"
+
+        - name: Confirm the llama.cpp Claim Was Recorded and Not Shadowed
+          ansible.builtin.fail:
+            msg: >-
+              The GPU-claim variable did not take the value this play just wrote,
+              so the single-backend guard cannot be trusted. This almost always
+              means ai_gpu_claims was set on the command line with --extra-vars,
+              which outranks set_fact. Remove that override and re-run.
+          when: ai_gpu_claims is not defined or 'llamacpp' not in ai_gpu_claims
+
+        # Register scoped to this task's per-item failed_when, and the rejectattr
+        # names this block's own backend, exactly as in the vLLM block above.
+        - name: Stop and Boot-Disable Every Other GPU Backend
+          ansible.builtin.systemd_service:
+            name: "{{ item.value }}"
+            state: stopped
+            enabled: false
+          loop: "{{ AI_GPU_BACKENDS | dict2items | rejectattr('key', 'equalto', 'llamacpp') | list }}"
+          loop_control:
+            label: "{{ item.value }}"
+          register: ai_llamacpp_stop_result
+          failed_when: >-
+            ai_llamacpp_stop_result.failed | default(false)
+            and 'Could not find the requested service'
+                not in (ai_llamacpp_stop_result.msg | default(''))
+
+    # ComfyUI claims the card exactly as the two inference backends do, even
+    # though it is a host virtualenv rather than a compose project: the unit it
+    # stops and the unit that stops it are ordinary systemd units either way.
+    - name: Hand the GPU to ComfyUI
+      tags:
+        - comfyui
+      block:
+        - name: Record the ComfyUI Claim on the GPU
+          ansible.builtin.set_fact:
+            ai_gpu_claims: "{{ ai_gpu_claims | default([]) + ['comfyui'] }}"
+
+        - name: Confirm the ComfyUI Claim Was Recorded and Not Shadowed
+          ansible.builtin.fail:
+            msg: >-
+              The GPU-claim variable did not take the value this play just wrote,
+              so the single-backend guard cannot be trusted. This almost always
+              means ai_gpu_claims was set on the command line with --extra-vars,
+              which outranks set_fact. Remove that override and re-run.
+          when: ai_gpu_claims is not defined or 'comfyui' not in ai_gpu_claims
+
+        # Register scoped to this task's per-item failed_when, and the rejectattr
+        # names this block's own backend, exactly as in the vLLM block above.
+        - name: Stop and Boot-Disable Every Other GPU Backend
+          ansible.builtin.systemd_service:
+            name: "{{ item.value }}"
+            state: stopped
+            enabled: false
+          loop: "{{ AI_GPU_BACKENDS | dict2items | rejectattr('key', 'equalto', 'comfyui') | list }}"
+          loop_control:
+            label: "{{ item.value }}"
+          register: ai_comfyui_stop_result
+          failed_when: >-
+            ai_comfyui_stop_result.failed | default(false)
+            and 'Could not find the requested service'
+                not in (ai_comfyui_stop_result.msg | default(''))
+
+    # Refuses on evidence — more than one recorded claim in one run — however the
+    # tags were spelled. Reached after the stops, which is harmless: no role has
+    # run yet.
+    - name: Refuse a Run in Which More Than One Backend Claimed the GPU
+      ansible.builtin.fail:
+        msg: >-
+          This host has one GPU and three backends that cannot share it, and this
+          run drove {{ ai_gpu_claims | unique | join(', ') }}. Re-run naming
+          exactly one: --tags vllm, --tags llamacpp or --tags comfyui (add
+          acme,bifrost,coolercontrol,nginx for a full deploy). Whichever you name
+          takes ownership of the GPU and the others are stopped and disabled
+          automatically. Note that the reserved tag `tagged`, and an
+          ANSIBLE_RUN_TAGS environment default, both select every tagged task and
+          therefore every backend.
+      when: ai_gpu_claims | unique | length > 1
+      tags:
+        - vllm
+        - llamacpp
+        - comfyui
+
+    # CoolerControl is an apt package driven by systemd, not a compose project,
+    # and claims no GPU: this block only moves its listener off loopback onto the
+    # docker bridge and names cooler.<zone> an allowed origin for nginx to proxy.
+    #
+    # THE CONFIG FILE IS THE DAEMON'S: coolercontrold rewrites config.toml on every
+    # UI save, so it is never templated whole — three keys are converged in place,
+    # while the daemon is stopped, and only when the probe finds drift, because a
+    # restart hands the fans to firmware control for its duration. A UI save may
+    # re-space a key once: one corrective restart, not a recurring one.
+    #
+    # ACCEPTED POSTURE: the bind carries the read-only plaintext gRPC listener
+    # (11988) onto the bridge too, and makes 11987 reachable by this host's
+    # containers, not by the LAN — as vLLM and Bifrost already are; writes still
+    # need the daemon's authenticated session.
+    - name: Expose the CoolerControl Daemon Through the TLS Terminator
+      tags:
+        - coolercontrol
+      block:
+        - name: Create the coolercontrold Systemd Drop-In Directory
+          ansible.builtin.file:
+            path: "/etc/systemd/system/{{ COOLERCONTROL_SERVICE_NAME }}.service.d"
+            state: directory
+            mode: "0755"
+            owner: "root"
+            group: "root"
+
+        # docker0 must exist before the bind: a bind to an absent address fails
+        # outright, so without this ordering the listener is lost on every reboot.
+        # systemd reads the drop-in at the next start, so it costs no restart.
+        - name: Render the coolercontrold Docker-Ordering Drop-In
+          ansible.builtin.template:
+            src: "{{ ansible_config_file | dirname }}/templates/ai-hosts/coolercontrold-docker-bridge.conf.j2"
+            dest: "/etc/systemd/system/{{ COOLERCONTROL_SERVICE_NAME }}.service.d/10-docker-bridge.conf"
+            mode: "0644"
+            owner: "root"
+            group: "root"
+          register: ai_cooler_dropin
+
+        # One list, consumed by both the probe and the edit, so the two cannot
+        # diverge. Values carry their own TOML quoting; ini_file writes them raw.
+        - name: Describe the CoolerControl Settings This Vhost Requires
+          ansible.builtin.set_fact:
+            ai_cooler_settings:
+              - option: "ipv4_address"
+                value: '"{{ COOLERCONTROL_BIND_ADDRESS }}"'
+              - option: "protocol_header"
+                value: '"X-Forwarded-Proto"'
+              - option: "origins"
+                value: '["{{ COOLERCONTROL_PUBLIC_URL }}"]'
+
+        # check_mode regardless of invocation: this pass only reports drift.
+        # create: false because a synthetic file of three keys is the clobber this
+        # block exists to avoid — the daemon writes the real one at first start.
+        # modify_inactive_option: false leaves commented-out examples commented.
+        - name: Probe the CoolerControl Listener Settings for Drift
+          community.general.ini_file:
+            path: "{{ COOLERCONTROL_CONFIG_FILE }}"
+            section: "settings"
+            option: "{{ item.option }}"
+            value: "{{ item.value }}"
+            create: false
+            modify_inactive_option: false
+          check_mode: true
+          register: ai_cooler_probe
+          loop: "{{ ai_cooler_settings }}"
+          loop_control:
+            label: "{{ item.option }}"
+
+        # Two registers, two booleans: the repair below is an ordered sequence, not
+        # something a handler at end of play could carry.
+        - name: Reduce the Probes to the Two Decisions They Answer
+          ansible.builtin.set_fact:
+            ai_cooler_reload_needed: "{{ ai_cooler_dropin.changed | default(false) }}"
+            ai_cooler_config_drift: "{{ ai_cooler_probe.results | selectattr('changed') | list | length > 0 }}"
+
+        - name: Reload Systemd for the coolercontrold Drop-In
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          when: ai_cooler_reload_needed | bool
+
+        # RECOVERY. systemd does not restart an intentional stop, so an edit that
+        # failed after it would leave the fans on firmware control until a human
+        # noticed. The file is copied aside first; rescue restores that copy and
+        # re-raises, always restarts the daemon on both paths, and the copy survives
+        # only a failed run, for inspection. A block's when: is inherited by its
+        # rescue and always sections, so a converged host runs none of it.
+        - name: Back Up the CoolerControl Configuration Before Editing It
+          ansible.builtin.copy:
+            src: "{{ COOLERCONTROL_CONFIG_FILE }}"
+            dest: "{{ COOLERCONTROL_CONFIG_FILE }}.ansible-pre-edit"
+            remote_src: true
+            mode: preserve
+          when: ai_cooler_config_drift | bool
+
+        - name: Repair the CoolerControl Listener Settings With the Daemon Stopped
+          when: ai_cooler_config_drift | bool
+          block:
+            - name: Stop coolercontrold Before Editing Its Configuration
+              ansible.builtin.systemd_service:
+                name: "{{ COOLERCONTROL_SERVICE_NAME }}"
+                state: stopped
+
+            # No mode or owner: the file is the daemon's. ini_file rewrites the
+            # matching line inside [settings] and appends nothing else.
+            - name: Converge the CoolerControl Listener Settings
+              community.general.ini_file:
+                path: "{{ COOLERCONTROL_CONFIG_FILE }}"
+                section: "settings"
+                option: "{{ item.option }}"
+                value: "{{ item.value }}"
+                create: false
+                modify_inactive_option: false
+              loop: "{{ ai_cooler_settings }}"
+              loop_control:
+                label: "{{ item.option }}"
+
+            # Last, so any failure above leaves it unset and the copy on disk.
+            - name: Record That the CoolerControl Edit Completed
+              ansible.builtin.set_fact:
+                ai_cooler_edit_succeeded: true
+          rescue:
+            - name: Restore the Pre-Edit CoolerControl Configuration
+              ansible.builtin.copy:
+                src: "{{ COOLERCONTROL_CONFIG_FILE }}.ansible-pre-edit"
+                dest: "{{ COOLERCONTROL_CONFIG_FILE }}"
+                remote_src: true
+                mode: preserve
+
+            - name: Fail After Restoring the Pre-Edit CoolerControl Configuration
+              ansible.builtin.fail:
+                msg: >-
+                  Editing {{ COOLERCONTROL_CONFIG_FILE }} failed partway. The
+                  pre-edit copy at
+                  {{ COOLERCONTROL_CONFIG_FILE }}.ansible-pre-edit has been
+                  restored over it, so no half-edited file survives, and
+                  {{ COOLERCONTROL_SERVICE_NAME }} is being started again with
+                  that ORIGINAL configuration — its listener stays wherever that
+                  file put it, which on a first deploy is loopback and 502s the
+                  vhost. The copy is deliberately left in place for inspection;
+                  remove it once the cause is understood, then re-run
+                  --tags coolercontrol.
+          always:
+            - name: Start coolercontrold After Editing Its Configuration
+              ansible.builtin.systemd_service:
+                name: "{{ COOLERCONTROL_SERVICE_NAME }}"
+                state: started
+
+            - name: Remove the Pre-Edit CoolerControl Configuration Backup
+              ansible.builtin.file:
+                path: "{{ COOLERCONTROL_CONFIG_FILE }}.ansible-pre-edit"
+                state: absent
+              when: ai_cooler_edit_succeeded | default(false) | bool
+
+    # The ai-metrics unit binds the docker bridge address twice over — directly,
+    # through node-exporter's --web.listen-address, and indirectly, through the
+    # host side of dcgm-exporter's published port — and a bind to an address that
+    # does not exist yet fails outright rather than waiting. docker0 does not
+    # exist until dockerd creates it.
+    #
+    # SAME PROBLEM AND SAME SHAPE AS THE COOLERCONTROL DROP-IN ABOVE, with one
+    # difference the unit type forces: this unit is Type=oneshot, and what
+    # systemd does and does not accept on a oneshot Restart= is documented in the
+    # template rather than restated here. It belongs in pre_tasks because roles
+    # run before tasks and systemd reads a drop-in at the unit's next start, so
+    # writing it here means the start the role itself performs already has it —
+    # at no extra restart.
+    #
+    # It claims no GPU and registers no entry in AI_GPU_BACKENDS, so this block
+    # neither stops a backend nor is stopped by one.
+    - name: Order the ai-metrics Unit Behind the Docker Bridge
+      tags:
+        - metrics
+      block:
+        - name: Create the ai-metrics Systemd Drop-In Directory
+          ansible.builtin.file:
+            path: "/etc/systemd/system/{{ AI_METRICS_SERVICE_NAME }}.service.d"
+            state: directory
+            mode: "0755"
+            owner: "root"
+            group: "root"
+
+        - name: Render the ai-metrics Docker-Ordering Drop-In
+          ansible.builtin.template:
+            src: "{{ ansible_config_file | dirname }}/templates/ai-hosts/ai-metrics-docker-bridge.conf.j2"
+            dest: "/etc/systemd/system/{{ AI_METRICS_SERVICE_NAME }}.service.d/10-docker-bridge.conf"
+            mode: "0644"
+            owner: "root"
+            group: "root"
+          register: ai_metrics_dropin
+
+        # The role reloads systemd itself, but only on the run that writes the
+        # unit file. A run whose only change is this drop-in would otherwise
+        # leave the edit unread until some unrelated reload, so the decision is
+        # reduced to a fact and acted on here — the arrangement the
+        # coolercontrold block above already uses.
+        - name: Reduce the Drop-In Render to the Decision It Answers
+          ansible.builtin.set_fact:
+            ai_metrics_reload_needed: "{{ ai_metrics_dropin.changed | default(false) }}"
+
+        - name: Reload Systemd for the ai-metrics Drop-In
+          ansible.builtin.systemd_service:
+            daemon_reload: true
+          when: ai_metrics_reload_needed | bool
+  roles:
+    # vLLM — OpenAI-compatible inference server on the RTX 3090. Model reference
+    # and serve flags come from VLLM_MODEL / VLLM_SERVE_ARGS, so switching models
+    # is an Internal variable edit; the re-rendered compose manifest restarts the
+    # unit on the next run.
+    - role: docker-compose-service
+      tags:
+        - vllm
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ VLLM_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ VLLM_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ VLLM_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ VLLM_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ VLLM_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ VLLM_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ VLLM_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ VLLM_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ VLLM_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ VLLM_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ VLLM_SERVICE_MANIFEST }}"
+
+    # llama.cpp server — the second GGUF backend, serving architectures the vLLM
+    # plugin chain cannot load. Shares ai-vllm's models directory read-only, so
+    # nothing is downloaded twice, and shares its GPU absolutely: see the header
+    # of this file and the banner in the Internal config-llamacpp.yml. Role order
+    # here is cosmetic: a run may drive only one backend, and a run that drives
+    # both is refused in pre_tasks before either role is reached.
+    - role: docker-compose-service
+      tags:
+        - llamacpp
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ LLAMACPP_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ LLAMACPP_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ LLAMACPP_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ LLAMACPP_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ LLAMACPP_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ LLAMACPP_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ LLAMACPP_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ LLAMACPP_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ LLAMACPP_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ LLAMACPP_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ LLAMACPP_SERVICE_MANIFEST }}"
+
+    # ComfyUI — the third claimant on the single 3090 and the only one that is not
+    # a container. python-venv-app installs the host packages, checks out the
+    # pinned ComfyUI tree plus its GGUF custom node, builds a virtualenv, runs an
+    # ORDERED pip sequence (the CUDA torch trio first, the application's own
+    # requirements after, all under one constraints file so nothing downgrades the
+    # +cu130 wheels), renders extra_model_paths.yaml into the checkout and writes
+    # comfyui.service. Weights are read from the models root ai-vllm owns, so
+    # nothing is staged twice; the reasoning for every pin is in the Internal
+    # config-comfyui.yml. GPU ownership is the same absolute claim the two
+    # inference backends make — role order here is cosmetic, because a run that
+    # drives more than one backend is refused in pre_tasks before any role runs.
+    - role: python-venv-app
+      tags:
+        - comfyui
+      PVA_NAME: "{{ COMFYUI_NAME }}"
+      PVA_USER: "{{ COMFYUI_USER }}"
+      PVA_GROUP: "{{ COMFYUI_GROUP }}"
+      PVA_USER_GROUPS: "{{ COMFYUI_USER_GROUPS }}"
+      PVA_BASE_DIR: "{{ COMFYUI_BASE_DIR }}"
+      PVA_APT_PACKAGES: "{{ COMFYUI_APT_PACKAGES }}"
+      PVA_GIT_REPO: "{{ COMFYUI_GIT_REPO }}"
+      PVA_GIT_VERSION: "{{ COMFYUI_VERSION }}"
+      PVA_EXTRA_REPOS: "{{ COMFYUI_EXTRA_REPOS }}"
+      PVA_PIP_CONSTRAINTS: "{{ COMFYUI_PIP_CONSTRAINTS }}"
+      PVA_PIP_STEPS: "{{ COMFYUI_PIP_STEPS }}"
+      PVA_TEMPLATES: "{{ COMFYUI_TEMPLATES }}"
+      PVA_SERVICE_NAME: "{{ COMFYUI_SERVICE_NAME }}"
+      PVA_SERVICE_DESCRIPTION: "{{ COMFYUI_SERVICE_DESCRIPTION }}"
+      PVA_SERVICE_AFTER: "{{ COMFYUI_SERVICE_AFTER }}"
+      PVA_SERVICE_WANTS: "{{ COMFYUI_SERVICE_WANTS }}"
+      PVA_SERVICE_ARGS: "{{ COMFYUI_ARGS }}"
+      PVA_SERVICE_EXTRA_SERVICE_OPTIONS: "{{ COMFYUI_SERVICE_EXTRA_SERVICE_OPTIONS }}"
+
+    # Bifrost — CPU-only OSS LLM gateway fronting the local vLLM endpoint. Its
+    # config.json is rendered by the role and bind-mounted read-only over the
+    # /app/data volume, so the gateway's declared configuration is Ansible-owned
+    # while its runtime state (SQLite config/logs stores) stays in the volume.
+    - role: docker-compose-service
+      tags:
+        - bifrost
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ BIFROST_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ BIFROST_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ BIFROST_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ BIFROST_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ BIFROST_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ BIFROST_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ BIFROST_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ BIFROST_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ BIFROST_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ BIFROST_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ BIFROST_SERVICE_MANIFEST }}"
+
+    # ai-metrics — node-exporter and dcgm-exporter, the pair that makes this
+    # host's CPU, RAM, sensors, fans, RAPL package power and GPU visible to the
+    # cluster's Prometheus. NOT a GPU claimant, and the header says why: the CDI
+    # reference grants dcgm-exporter device visibility while the custom counter
+    # list (Home-Ops templates/metrics/dcgm-counters.csv, delivered through the
+    # role's FILES interface) keeps it off every DCGM_FI_PROF_* field, so it runs
+    # beside whichever backend holds the card instead of competing with it.
+    # Position here is reading order only — it shares nothing with the backends
+    # above and nothing but a vhost with the terminator below.
+    - role: docker-compose-service
+      tags:
+        - metrics
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ AI_METRICS_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ AI_METRICS_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ AI_METRICS_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ AI_METRICS_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ AI_METRICS_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ AI_METRICS_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ AI_METRICS_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ AI_METRICS_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ AI_METRICS_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ AI_METRICS_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ AI_METRICS_SERVICE_MANIFEST }}"
+
+    # nginx — the TLS terminator, and the only service on this host published to
+    # the LAN. It carries the first play's wildcard certificate, proxies
+    # vllm.<zone>, llamacpp.<zone>, comfyui.<zone>, bifrost.<zone>, cooler.<zone>
+    # and cawl-inferior.<zone> (the exporters, named for the machine rather than
+    # for a service) over the docker bridge address, and is the unit acme.sh
+    # restarts from its persisted reloadcmd on renewal. Listed last so a
+    # multi-tag run reaches it with the certificate, the selected backend, the
+    # fan daemon and the exporters already in place; it answers 502 for whichever
+    # of them is not running, by design.
+    - role: docker-compose-service
+      tags:
+        - nginx
+      DOCKER_COMPOSE_SERVICE_NAME: "{{ AI_NGINX_SERVICE_NAME }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_DESCRIPTION: "{{ AI_NGINX_SERVICE_SYSTEMD_DESCRIPTION }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_REQUIRES: "{{ AI_NGINX_SERVICE_SYSTEMD_REQUIRES }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_AFTER: "{{ AI_NGINX_SERVICE_SYSTEMD_AFTER }}"
+      DOCKER_COMPOSE_SERVICE_SYSTEMD_FILE: "{{ AI_NGINX_SERVICE_SYSTEMD_FILE }}"
+      DOCKER_COMPOSE_SERVICE_IMAGES: "{{ AI_NGINX_SERVICE_IMAGES }}"
+      DOCKER_COMPOSE_SERVICE_COMPOSE_PATH: "{{ AI_NGINX_SERVICE_COMPOSE_PATH }}"
+      DOCKER_COMPOSE_SERVICE_CONFIG_PATH: "{{ AI_NGINX_COMPOSE_SERVICE_CONFIG_PATH }}"
+      DOCKER_COMPOSE_SERVICE_TEMPLATES: "{{ AI_NGINX_COMPOSE_SERVICE_TEMPLATES }}"
+      DOCKER_COMPOSE_SERVICE_FILES: "{{ AI_NGINX_COMPOSE_SERVICE_FILES }}"
+      DOCKER_COMPOSE_SERVICE_MANIFEST: "{{ AI_NGINX_SERVICE_MANIFEST }}"

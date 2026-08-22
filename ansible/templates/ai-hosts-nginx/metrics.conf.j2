@@ -1,0 +1,111 @@
+# {{ ansible_managed }}
+#
+# Metrics vhost — terminates TLS for {{ AI_NGINX_METRICS_FQDN }}, which is
+# cawl-inferior.<zone>, and proxies to the two exporters of the ai-metrics
+# compose project on this host. The name is the machine's rather than a
+# service's, unlike every other vhost in this directory, because what it
+# publishes describes the whole host and not one workload on it. Rendered by
+# playbooks/ai-hosts.yml (tag `nginx`) and mounted at
+# /etc/nginx/conf.d/07_metrics.conf; the filename and the AI_NGINX_METRICS_*
+# variables keep the `metrics` spelling, which names the vhost, not the DNS
+# label. TLS parameters and the $connection_upgrade map are inherited from
+# 01_nginx_top_level.conf; nothing ssl_* belongs here.
+#
+# WHO CALLS IT. Grafana Alloy on the belisarius cluster, twice a minute, from off
+# this host — which is the entire reason the exporters are fronted at all rather
+# than scraped directly. They bind the docker bridge address and are unreachable
+# from the LAN; this name is the only way in, and it carries the same wildcard
+# certificate as the inference vhosts.
+#
+# UNAUTHENTICATED, LIKE ITS NEIGHBOURS. Neither exporter has any notion of a
+# credential and this proxy adds none. What leaks to anyone who can reach this
+# name is hardware telemetry — utilisation, temperatures, fan speeds, VRAM
+# occupancy — which is a smaller disclosure than the inference vhosts already
+# accept, and the same recorded LAN-trust posture applies. ForwardAuth is
+# addable here later without touching the exporters.
+
+# Resolved once, at configuration load. host.docker.internal is written into this
+# container's /etc/hosts by the extra_hosts/host-gateway mapping in the compose
+# manifest, so both names always resolve and nginx always starts — a stopped
+# ai-metrics unit produces 502 on request, never a boot failure. Do not replace
+# these with bare hostnames that depend on DNS; nginx exits at startup on an
+# unresolvable upstream name.
+#
+# TWO UPSTREAMS, ONE VHOST. node-exporter and dcgm-exporter are separate
+# processes on separate ports, deployed and restarted together, and giving them
+# one name with two paths keeps the cluster's scrape configuration to one target
+# host instead of two.
+upstream metrics_node {
+  server {{ AI_NGINX_METRICS_NODE_UPSTREAM }};
+}
+
+upstream metrics_gpu {
+  server {{ AI_NGINX_METRICS_GPU_UPSTREAM }};
+}
+
+server {
+  listen {{ AI_NGINX_HTTP_PORT }};
+  server_name {{ AI_NGINX_METRICS_FQDN }};
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen {{ AI_NGINX_HTTPS_PORT }} ssl;
+  server_name {{ AI_NGINX_METRICS_FQDN }};
+
+  # EXACT-MATCH LOCATIONS, NOT PREFIXES, and the `=` is load-bearing twice over.
+  #
+  # First, correctness of the rewrite: `proxy_pass` with a URI replaces the part
+  # of the request that matched the location with that URI. Under an exact match
+  # the matched part is the whole path, so /node/metrics arrives upstream as
+  # /metrics and nothing else can arrive at all. Written as a prefix location the
+  # same pair would forward /node/metricsanything and /node/metrics/../debug/pprof
+  # to a rewritten path, which is a URI-rewrite defect waiting for a typo in a
+  # scrape config to find it.
+  #
+  # Second, surface: an exact match cannot be extended. Both exporters serve more
+  # than /metrics — node_exporter has /debug/pprof and a landing page, and the
+  # exporter toolkit will happily serve them — and none of that is reachable
+  # through this vhost by construction rather than by a deny rule.
+  #
+  # THE PATHS ARE PART OF THE CLUSTER CONTRACT. Alloy's prometheus.scrape blocks
+  # carry metrics_path = "/node/metrics" and "/gpu/metrics"; renaming either side
+  # alone silently stops one job.
+  location = /node/metrics {
+    proxy_pass http://metrics_node/metrics;
+
+    # HTTP/1.1 to the upstream. The default is 1.0, which has no keep-alive; a
+    # scrape is a small request-response pair and 1.1 is simply the current
+    # protocol both exporters speak natively.
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  location = /gpu/metrics {
+    proxy_pass http://metrics_gpu/metrics;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  # NO PROXY BUFFERING OVERRIDE and no extended timeout, unlike every other vhost
+  # in this directory. Those exist for token streams and held-open SSE channels;
+  # a scrape is a few tens of kilobytes the upstream produces in one shot, so
+  # nginx's defaults — buffered response, 60s read timeout — are both correct and
+  # cheaper here. The client gives up first in any case: Alloy's own scrape
+  # timeout bounds the request well inside that 60s, so this proxy will never be
+  # the component that decides a scrape has failed.
+
+  # Everything else is closed. There is no index, no directory listing and no
+  # third path: this name exists for exactly two URLs and says so.
+  location / {
+    return 404;
+  }
+}

@@ -1,0 +1,75 @@
+# {{ ansible_managed }}
+#
+# llama.cpp vhost — terminates TLS for {{ AI_NGINX_LLAMACPP_FQDN }} and proxies to
+# the llama-server instance running as its own compose project on this host.
+# Rendered by playbooks/ai-hosts.yml (tag `nginx`) and mounted at
+# /etc/nginx/conf.d/04_llamacpp.conf. TLS parameters and the $connection_upgrade
+# map are inherited from 01_nginx_top_level.conf; nothing ssl_* belongs here.
+#
+# THE BACKEND HAS NO AUTHENTICATION. llama-server enforces none unless it is
+# started with --api-key, and this deployment does not pass it. This proxy adds
+# encryption and a name, nothing else — anyone who can reach
+# {{ AI_NGINX_LLAMACPP_FQDN }} can use the GPU. Same recorded limitation as the
+# vLLM vhost next door, not an oversight.
+#
+# EXPECT 502 WHENEVER THIS BACKEND IS NOT THE ONE SERVING: the other backend owns
+# the single GPU, or this one is still loading its model after a deploy — the unit
+# returns before the model is up and the healthcheck's 600s window is the
+# authority. nginx enforces nothing here; it proxies whatever is listening and
+# 502s when nothing is. The single-backend rule lives in playbooks/ai-hosts.yml,
+# and ownership moves by running the other tag.
+
+# Resolved once, at configuration load. host.docker.internal is written into this
+# container's /etc/hosts by the extra_hosts/host-gateway mapping in the compose
+# manifest, so it always resolves and never blocks nginx from starting — a stopped
+# ai-llamacpp unit produces 502 on request, not a boot failure. (nginx can still
+# fail to start for unrelated reasons; the missing certificate is the one that
+# matters here.) Do not replace this with a bare hostname that depends on DNS;
+# nginx exits at startup on an unresolvable upstream name.
+upstream llamacpp {
+  server {{ AI_NGINX_LLAMACPP_UPSTREAM }};
+}
+
+server {
+  listen {{ AI_NGINX_HTTP_PORT }};
+  server_name {{ AI_NGINX_LLAMACPP_FQDN }};
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen {{ AI_NGINX_HTTPS_PORT }} ssl;
+  server_name {{ AI_NGINX_LLAMACPP_FQDN }};
+
+  location / {
+    proxy_pass http://llamacpp;
+
+    # HTTP/1.1 to the upstream. The default is 1.0, which has no chunked request
+    # body and no keep-alive, and both matter for a streaming API.
+    proxy_http_version 1.1;
+
+    # Token streaming. Without this nginx accumulates the response in its own
+    # buffers and releases it in blocks, which does not break correctness but
+    # destroys the incremental feel of every client that renders as it reads.
+    proxy_buffering off;
+    proxy_request_buffering off;
+
+    # A long generation holds the connection open with no bytes flowing between
+    # tokens. nginx's 60s default read timeout cuts the response mid-stream and
+    # the client sees a clean end-of-body — a truncated answer indistinguishable
+    # from a finished one.
+    proxy_read_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+    proxy_send_timeout {{ AI_NGINX_PROXY_TIMEOUT }};
+
+    # WebSocket/upgrade passthrough via the http-scope map. For an ordinary
+    # request $connection_upgrade is "close", which costs nothing here: the
+    # upstream block declares no keepalive pool, so nginx opens a connection per
+    # request either way.
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}

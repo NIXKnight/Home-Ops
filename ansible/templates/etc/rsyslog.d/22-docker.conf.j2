@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+#
+# Docker log routing for hosts whose containers run with the syslog log driver
+# (compose `logging: driver: syslog`, tag `docker/<container>`). Rendered to
+# /etc/rsyslog.d/22-docker.conf by playbooks/setup_system.yml through the
+# linux-common role's LC_MISC_TEMPLATES interface; see the ai_hosts group_vars
+# main.yml in the Internal inventory for the wiring (package, directory,
+# template and service action all have to be present for the chain to work).
+#
+# WHAT THIS BUYS. With the syslog driver the daemon stops writing per-container
+# JSON under /var/lib/docker/containers, which nothing rotates, and hands each
+# line to /dev/log instead. These rules turn that stream back into one
+# plain-text file per container under /var/log/docker, where the
+# logrotate.d/docker-containers config owns retention. `docker logs` no longer
+# answers for such containers — read the routed file, or, on a host where
+# this drop-in is not installed, `journalctl -t docker/<container>`.
+#
+# ORDERING. The 22- prefix puts this after Debian's own rules in
+# /etc/rsyslog.conf but before any higher-numbered drop-in. Every rule below
+# ends in `stop`, so matched Docker traffic does not also land in
+# /var/log/syslog.
+
+# Docker daemon and containerd both log under their own programname, not the
+# container tag, so they get one shared file rather than a per-container one.
+template(name="DockerDaemonFile" type="string"
+    string="/var/log/docker/docker.log")
+
+# Per-container file name, derived from the syslog tag the daemon sends:
+#   docker/<container-name>[<pid>]: <message>
+# The ERE picks field 1 of the tag after the `docker/` prefix and stops at the
+# first `[`, `/` or `:`, which strips the pid and any nested path.
+# secpath-replace then neutralises path traversal in whatever survived, so a
+# container named with `..` cannot make rsyslog write outside /var/log/docker.
+template(name="DockerContainerFile" type="string"
+    string="/var/log/docker/%syslogtag:R,ERE,1,FIELD:docker/([^[/:]+)--end:secpath-replace%.log")
+
+# File ownership and mode are set per action rather than through the global
+# $FileCreateMode / $FileOwner directives, so this drop-in cannot leak its
+# settings into rules that rsyslog parses after it. 0640 root:adm matches both
+# Debian's default for /var/log and the `create` line in the logrotate config.
+if $programname == 'dockerd' then {
+    action(type="omfile" dynaFile="DockerDaemonFile"
+           fileOwner="root" fileGroup="adm" fileCreateMode="0640")
+    stop
+}
+
+if $programname == 'containerd' then {
+    action(type="omfile" dynaFile="DockerDaemonFile"
+           fileOwner="root" fileGroup="adm" fileCreateMode="0640")
+    stop
+}
+
+# Container traffic. dynaFileCacheSize is the number of per-container files
+# rsyslog keeps open at once; raise it on a host that runs more concurrent
+# containers than this.
+if $syslogtag startswith "docker/" then {
+    action(type="omfile" dynaFile="DockerContainerFile" dynaFileCacheSize="20"
+           fileOwner="root" fileGroup="adm" fileCreateMode="0640")
+    stop
+}

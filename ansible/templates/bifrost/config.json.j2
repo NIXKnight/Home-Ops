@@ -1,0 +1,140 @@
+{#-
+  Bifrost declarative configuration (config.json), rendered by playbooks/ai-hosts.yml
+  --tags bifrost through the role's templates interface and bind-mounted read-only
+  at $APP_DIR/config.json. JSON carries no comments, so everything explanatory in
+  this file lives in Jinja comment blocks and never reaches the host.
+
+  ansible_managed is deliberately absent for the same reason: a leading comment
+  line would make the file invalid JSON.
+
+  SECRETS NEVER APPEAR HERE. Bifrost resolves any string of the form
+  "env.<NAME>" against the process environment at startup, and the environment is
+  supplied by the 0600/no_log bifrost.env rendered alongside this file. This
+  template is world-readable on the host by design so `--diff` shows what changed.
+
+  CONFIG SOURCE MODEL. config_store is left at its default (enabled, SQLite in
+  $APP_DIR), which is Bifrost's "DB-backed config.json" mode: the sections present
+  here seed or reconcile the config store at startup under the default
+  source_of_truth "split" — unchanged file-backed rows keep dashboard edits, while
+  rows that changed in this file are applied on the next start. The role restarts
+  the unit whenever this render changes, so an edit here reaches the gateway in
+  the same play run. Set "config_store": {"enabled": false} for strict file-only
+  operation instead; that also disables config edits from the dashboard and API.
+-#}
+{#-
+  $schema is pinned to the SAME TAG as the running image, not to
+  https://www.getbifrost.ai/schema. That live URL publishes the 2.x config
+  surface, and validating this file against it is what put a `setup_token` key
+  here that v1.6.10 has no concept of. Editor tooling should describe the binary
+  actually running.
+
+  Even the tag's own schema is slightly ahead of the Go structs (it documents
+  governance.auth_config.disable_auth_on_inference, which is NOT a field on
+  v1.6.10's AuthConfig and is silently dropped). Where schema and struct disagree,
+  the struct wins — v1.6.10 decodes this file with a plain json.Unmarshal and no
+  DisallowUnknownFields, so an unknown key is discarded without a warning of any
+  kind. Nothing here may be trusted because a schema accepted it.
+-#}
+{
+  "$schema": "https://raw.githubusercontent.com/maximhq/bifrost/transports/{{ BIFROST_SERVICE_IMAGES.bifrost.tag }}/transports/config.schema.json",
+  "encryption_key": "env.BIFROST_ENCRYPTION_KEY",
+{#
+  NO setup_token KEY. v1.6.10 has no setup-token mechanism at all: the string
+  appears nowhere in its config structs, its loader, or its environment handling —
+  it is a 2.x addition that only the live schema documents. Rendering it here did
+  nothing except imply a bootstrap step that does not exist. The first admin
+  account on this version comes from governance.auth_config below, which is
+  reconciled into the config store on every start.
+
+  Inference-call authentication. THE SWITCH IS HERE, ON client, and nowhere else:
+  v1.6.10 reads ClientConfig.EnforceAuthOnInference (json enforce_auth_on_inference)
+  and its built-in default is false. The similarly named
+  governance.auth_config.disable_auth_on_inference that the schema and the
+  upstream withauth example both show is NOT decoded by this version — setting it
+  changes nothing and reports nothing. See the Internal config-bifrost.yml for the
+  reachability tradeoff behind the shipped value.
+#}
+  "client": {
+    "drop_excess_requests": {{ BIFROST_DROP_EXCESS_REQUESTS | bool | to_json }},
+    "enable_logging": {{ BIFROST_ENABLE_LOGGING | bool | to_json }},
+    "enforce_auth_on_inference": {{ BIFROST_ENFORCE_AUTH_ON_INFERENCE | bool | to_json }}
+  },
+{% if BIFROST_AUTH_ENABLED | bool -%}
+{#-
+  Dashboard and admin-API authentication. governance.auth_config is the current
+  home for this block; the identically shaped top-level auth_config is deprecated
+  but still decoded. Both credentials are env references resolved from bifrost.env.
+
+  EXACTLY THREE FIELDS ARE DECODED by v1.6.10's AuthConfig struct — is_enabled,
+  admin_username, admin_password. Do not add disable_auth_on_inference here even
+  though the tag's schema and upstream's own examples/configs/withauth/config.json
+  both show it: this version has no such field and drops it silently. Inference
+  auth is client.enforce_auth_on_inference, set above.
+
+  FAIL-CLOSED ON UNRESOLVED REFERENCES. If BIFROST_ADMIN_USERNAME or
+  BIFROST_ADMIN_PASSWORD is missing from the environment, the loader logs
+  "username/password set with external reference but value is empty" and refuses
+  to persist empty credentials. Those two strings are the first thing to grep for
+  in the container log if the dashboard ever comes up open.
+
+  Turning auth off later means setting BIFROST_AUTH_ENABLED to false, which drops
+  this block from the file. The config store keeps its own enabled row, so a
+  dashboard that stays locked after that has to be corrected from the dashboard's
+  Security tab, not from here.
+
+  VERIFYING IT WORKED does not require a browser, and a browser is the least
+  reliable way to check it — a session cookie from an earlier visit suppresses the
+  login prompt without any config being wrong. Ask the gateway instead:
+
+    curl -s http://<host>:<port>/api/session/is-auth-enabled
+    -> {"auth_type":"password","has_valid_token":false,"is_auth_enabled":true}
+
+  That endpoint is deliberately public (it is on the middleware's whitelist) and
+  is the same source of truth the dashboard itself uses to decide whether to
+  prompt. is_auth_enabled true plus a 401 from any /api/ route means this block is
+  in force.
+#}
+  "governance": {
+    "auth_config": {
+      "is_enabled": true,
+      "admin_username": "env.BIFROST_ADMIN_USERNAME",
+      "admin_password": "env.BIFROST_ADMIN_PASSWORD"
+    }
+  },
+{% endif -%}
+{#-
+  Provider pool. `vllm` is a first-class provider type in the current schema, so
+  no custom_provider_config is needed: the endpoint and the exact served model
+  name are carried per key in vllm_key_config, and the provider's network_config
+  intentionally has no base_url field for that reason. The key is keyless — vLLM
+  serves no API key of its own — so base_key.value is omitted.
+
+  models ["*"] lets any requested model name route to this key; the request is
+  then served by whatever vllm_key_config.model_name names, which is the single
+  model this instance serves. Narrow it to that one name if the gateway later
+  fronts more than one backend.
+
+  FALLBACK SHAPE, proven by the retired in-cluster llama.cpp deployment, if this
+  native provider ever misbehaves against a GGUF-serving vLLM: declare a custom
+  provider instead — "custom_provider_config": {"base_provider_type": "openai",
+  "is_key_less": true, "allowed_requests": {"chat_completion": true,
+  "chat_completion_stream": true}} with "network_config": {"base_url": "<url>"}
+  and a plain key. Request paths are relative to base_url and the openai base
+  type already defaults to /v1/chat/completions, which is what vLLM serves.
+#}
+  "providers": {
+    "vllm": {
+      "keys": [
+        {
+          "name": {{ BIFROST_VLLM_KEY_NAME | to_json }},
+          "models": ["*"],
+          "weight": 1.0,
+          "vllm_key_config": {
+            "url": {{ BIFROST_VLLM_URL | to_json }},
+            "model_name": {{ BIFROST_VLLM_MODEL_NAME | to_json }}
+          }
+        }
+      ]
+    }
+  }
+}

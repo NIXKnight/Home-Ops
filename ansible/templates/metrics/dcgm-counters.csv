@@ -1,0 +1,104 @@
+# dcgm-exporter counter list for cawl-inferior's RTX 3090.
+#
+# ANSIBLE-MANAGED. Copied verbatim (ansible.builtin.copy, no templating) by
+# playbooks/ai-hosts.yml under the `metrics` tag, from
+# AI_METRICS_COMPOSE_SERVICE_FILES in the Internal group_vars/ai_hosts/
+# config-metrics.yml, to /opt/ai-metrics/config/dcgm-counters.csv and from there
+# read-only into the container at /etc/dcgm-exporter/custom-counters.csv. The
+# exporter is pointed at it with --collectors; editing this file re-copies it
+# AND restarts ai-metrics in the same run. Edit here, never on the host.
+#
+# FORMAT, from the image's own /etc/dcgm-exporter/default-counters.csv: three
+# columns — DCGM field name, Prometheus metric type, help text. A line starting
+# with '#' is a comment. The field name is also the emitted metric name, so a
+# rename here is a dashboard-breaking change.
+#
+# WHY A CUSTOM LIST AT ALL. The shipped default is wrong for this host in both
+# directions. It ENABLES five DCGM_FI_PROF_* profiling fields, which take a
+# GPM/profiling context on the card and are documented by the image as requiring
+# CAP_SYS_ADMIN; on a single-GPU box whose whole purpose is serving a model to
+# 24 GB of VRAM that is not a metric, it is a tenant. And it OMITS framebuffer
+# total, fan speed, the enforced power limit and the clock-event bitmask, which
+# are four of the things the dashboard exists to show.
+#
+# THE HARD RULE: ZERO DCGM_FI_PROF_* ENTRIES. Not commented-out-but-tempting,
+# not "just GR_ENGINE_ACTIVE". Every field below is a plain NVML read through
+# the embedded host engine, costs no GPU context and allocates no framebuffer.
+# `nvidia-smi` showing no dcgm-exporter process holding memory is the acceptance
+# test for that claim, and it is a test, not an assertion.
+#
+# FIELD-NAME SPELLINGS. go-dcgm v1.4601.1 renamed a number of these
+# (GPU_TEMP -> GPU_TEMP_CELSIUS, POWER_USAGE -> BOARD_POWER_WATTS,
+# CLOCK_THROTTLE_REASONS -> CLOCKS_EVENT_REASONS, XID_ERRORS -> XID_ERROR) and
+# keeps the old names resolvable through a legacy map the exporter consults
+# (dcgm.IsLegacyField). The spellings used below are the ones the pinned image's
+# own default-counters.csv uses, which is also what every published DCGM
+# dashboard queries. Move to the new names only together with the dashboard.
+#
+# NOT INCLUDED, deliberately:
+#   * DCGM_FI_DRIVER_VERSION and the other `label`-type fields. A label field
+#     attaches itself to EVERY series this exporter emits, so a driver upgrade
+#     would break series continuity across the whole GPU dashboard to record a
+#     string that is already in the change log.
+#   * ECC, retired-page, row-remap and NVLink counters. The 3090 has no ECC and
+#     no NVLink peer; every one of them would be a constant zero.
+#   * DCGM_EXP_CLOCK_EVENTS_COUNT / DCGM_EXP_XID_ERRORS_COUNT. Both are
+#     windowed re-derivations of data already below, and the window is a flag
+#     (--clock-events-count-window-size / --xid-count-window-size) that has to
+#     agree with the scrape interval to mean anything.
+
+# Utilization. Sample period is product-dependent; on this card both are NVML's
+# coarse 1-second averages, which is why they can read 0 during a short burst
+# and why the dashboard must not treat them as duty cycle.
+DCGM_FI_DEV_GPU_UTIL,      gauge, GPU utilization (in %).
+DCGM_FI_DEV_MEM_COPY_UTIL, gauge, Memory-controller utilization (in %).
+
+# Framebuffer. TOTAL is the field the shipped default omits and without which
+# "VRAM used" has no denominator. RESERVED is included so the three add up:
+# used + free + reserved = total, and a dashboard that plots used against total
+# alone silently loses the several hundred MiB the driver holds back.
+DCGM_FI_DEV_FB_TOTAL,    gauge, Framebuffer memory total (in MiB).
+DCGM_FI_DEV_FB_USED,     gauge, Framebuffer memory used (in MiB).
+DCGM_FI_DEV_FB_FREE,     gauge, Framebuffer memory free (in MiB).
+DCGM_FI_DEV_FB_RESERVED, gauge, Framebuffer memory reserved by the driver (in MiB).
+
+# Temperature. Core and memory only. Hotspot/junction is not exposed by NVML on
+# GeForce parts at all, so it is not obtainable here by any DCGM field —
+# CoolerControl on this host reads it out of band and remains the only source.
+# MEMORY_TEMP may itself report unsupported on this card; the dashboard treats a
+# missing series as absent data, never as 0 C.
+DCGM_FI_DEV_GPU_TEMP,    gauge, GPU core temperature (in C).
+DCGM_FI_DEV_MEMORY_TEMP, gauge, GPU memory temperature (in C).
+
+# Power. Draw and the limit it is being held against, together — a draw figure
+# on its own cannot distinguish an idle card from a power-capped one.
+DCGM_FI_DEV_POWER_USAGE,          gauge, Board power draw (in W).
+DCGM_FI_DEV_ENFORCED_POWER_LIMIT, gauge, Enforced board power limit (in W).
+
+# Fan. Percent of maximum, not RPM: NVML reports the card's fan as a duty cycle.
+# The board and case tachometers come from node-exporter's hwmon collector via
+# the two it87 chips, and are a different unit on purpose.
+DCGM_FI_DEV_FAN_SPEED, gauge, GPU fan speed (in % of maximum).
+
+# Clocks. Effective SM and memory clocks, which is where a thermal or power cap
+# becomes visible as an effect rather than as a flag.
+DCGM_FI_DEV_SM_CLOCK,  gauge, SM clock frequency (in MHz).
+DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
+
+# Clock events. A bitmask of the reasons the clocks are currently limited
+# (idle, sw/hw power cap, sw/hw thermal, sync boost, board limit). Decoded on
+# the dashboard with value mappings rather than here.
+DCGM_FI_DEV_CLOCK_THROTTLE_REASONS, gauge, Bitmask of the reasons the GPU clocks are currently limited.
+
+# Xid. Two shapes of the same event and both are wanted: the DEV field is a
+# gauge holding the LAST code seen, which answers "what broke", and the EXP
+# counter is cumulative since exporter start, which answers "how often" and can
+# be rated. DCGM_EXP_XID_ERRORS_TOTAL is exporter-generated (not an NVML field)
+# and exists in this pinned image — confirmed present in its own
+# default-counters.csv and in internal/pkg/counters/exporter_counters.go.
+#
+# IF THE EXPORTER REFUSES TO START, this is the first line to comment out: the
+# DCGM_EXP_* collectors install their own watches and are the only entries here
+# that are not a plain field read. The DEV field below it is unconditional.
+DCGM_FI_DEV_XID_ERRORS,    gauge,   Value of the last Xid error encountered.
+DCGM_EXP_XID_ERRORS_TOTAL, counter, Total Xid errors observed since exporter start.
