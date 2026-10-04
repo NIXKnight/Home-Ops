@@ -1,0 +1,14 @@
+[Unit]
+Description=Set NVIDIA GPU power limits
+After=systemd-modules-load.service nvidia-persistenced.service nvidia-cdi-refresh.service
+Before=docker.service
+
+[Service]
+Type=oneshot
+{% for target in GPU_POWER_LIMIT_TARGETS %}
+ExecStart=/usr/bin/nvidia-smi --id={{ target.uuid }} --power-limit={{ target.watts }}
+{% endfor %}
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

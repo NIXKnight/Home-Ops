@@ -189,3 +189,16 @@ ansible-lint             # run from ansible/ (config: ansible/.ansible-lint)
 
 CI runs both on every push / PR that touches `ansible/**`
 (`.github/workflows/ansible-lint.yml` at the repo root).
+
+## GPU power limits through linux-common
+
+The tagged play uses only `linux-common`'s fact-free
+`managed_files_services` entry to render and restart the NVIDIA power-limit
+oneshot. GPU-specific LC lists are mapped at that role call so the ordinary
+`setup_system.yml` application does not install or restart the unit.
+
+See [`../CLAUDE.md`](../CLAUDE.md) for the exact Operator command. The unit uses
+full GPU UUIDs and lets `nvidia-smi` validate devices, ranges, and privileges.
+Consequently, a missing/unsupported second device can fail after the first cap
+has already been applied; no preflight, rollback, Docker restart, or inference
+restart is performed.

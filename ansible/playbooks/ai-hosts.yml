@@ -1,4 +1,8 @@
 ---
+# GPU power limits are a separate, explicitly tagged linux-common application.
+# The maintained source role is temporary until managed_files_services is
+# published and pinned; normal collection lookup remains unchanged.
+#
 # ai-hosts — the container services that run on the standalone GPU host
 # (cawl-inferior: Debian 13, one RTX 3090, 32 GB RAM, nvidia-open 610.x driver,
 # nvidia-container-toolkit with CDI). The host itself — CUDA/toolkit apt repos,
@@ -148,8 +152,30 @@
 # additionally hands out every file it has generated, until an API-level decision
 # is made.
 
-- name: Provision the wildcard TLS certificate for the AI host services
+- name: Apply the AI host GPU power limits
   hosts: ai_hosts
+  gather_facts: false
+  become: true
+  tags:
+    - never
+    - gpu-power-limit
+  tasks:
+    - name: Install and apply the NVIDIA GPU power-limit unit
+      ansible.builtin.include_role:
+        name: /home/saadali/Projects/Ansible/Ansible-Collections/collections/nixknight/general/roles/linux-common  # noqa role-name[path]
+        tasks_from: managed_files_services
+        apply:
+          tags:
+            - gpu-power-limit
+      vars:
+        LC_MISC_TEMPLATES: "{{ GPU_LC_MISC_TEMPLATES }}"
+        LC_SYSTEMD_SERVICES_ACTIONS: "{{ GPU_LC_SYSTEMD_SERVICES_ACTIONS }}"
+      tags:
+        - gpu-power-limit
+
+- name: Provision the wildcard TLS certificate for the AI host services
+  # Prevent ordinary AI work (including always tasks) during the GPU-only run.
+  hosts: "{{ 'ai_hosts:!all' if 'gpu-power-limit' in ansible_run_tags else 'ai_hosts' }}"
   # Nothing in this play reads a fact: the acme role is four tasks (git clone,
   # mkdir, shell, cron) and the two below address fixed paths. The service play
   # gathers, so a bare run still has facts where they are used.
@@ -214,7 +240,8 @@
     - role: acme
 
 - name: Deploy AI host services (vLLM, llama.cpp and ComfyUI GPU backends, Bifrost LLM gateway, CoolerControl exposure, nginx TLS terminator)
-  hosts: ai_hosts
+  # Prevent facts and workload tasks during the GPU-only run.
+  hosts: "{{ 'ai_hosts:!all' if 'gpu-power-limit' in ansible_run_tags else 'ai_hosts' }}"
   gather_facts: true
   become: true
   # docker-compose-service comes from nixknight.docker and python-venv-app from
