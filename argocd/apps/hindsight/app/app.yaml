@@ -1,0 +1,58 @@
+---
+# Application: hindsight (Tier 1 base -- STRUCTURE, public).
+# Three-source helm-direct shape: bedag/raw is an empty renderer; the ref-only
+# source provides private values, and source[2] supplies every workload manifest.
+# Pins, private repository locations, and concrete environment paths belong to
+# Tier 2 only. Automated sync is intentionally OMITTED: root membership may create
+# the child Application, but the initial child sync remains a separate manual action.
+# Sync options below take effect only during an approved sync, not during authoring.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: hindsight
+  namespace: argocd
+  annotations:
+    # Future ordering only: depends on the existing shared database (wave 2),
+    # secret delivery, and private access. Waves do not activate or guarantee
+    # readiness of this manual-sync app.
+    argocd.argoproj.io/sync-wave: "3"
+  labels:
+    deploymentStrategy: helm-direct
+spec:
+  project: infrastructure
+  # Match the peer ExternalSecret default-field exclusions; no secret values.
+  ignoreDifferences:
+    - group: external-secrets.io
+      kind: ExternalSecret
+      jqPathExpressions:
+        - .spec.data[].remoteRef.conversionStrategy
+        - .spec.data[].remoteRef.decodingStrategy
+        - .spec.data[].remoteRef.metadataPolicy
+  sources:
+    # NULL renderer: private values set resources: []; no duplicate workloads.
+    - repoURL: https://bedag.github.io/helm-charts
+      chart: raw
+      targetRevision: "0.0.0"          # PLACEHOLDER -- pinned by Tier 2
+      helm:
+        releaseName: hindsight
+        valueFiles:
+          - $values/argocd/apps/hindsight/environments/PLACEHOLDER/values.yaml
+    # Values only: deliberately no path, so this source does not render resources.
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      ref: values
+    - repoURL: PLACEHOLDER
+      targetRevision: main
+      path: argocd/apps/hindsight/environments/PLACEHOLDER/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: hindsight
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m

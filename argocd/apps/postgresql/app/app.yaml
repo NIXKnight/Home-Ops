@@ -5,8 +5,9 @@
 # chart: the PostgreSQL instance is a CloudNativePG `Cluster` CR, not a Helm release,
 # so source[0] points at the bedag `raw` utility chart, which renders NOTHING when
 # given an empty resources list (see the private values.yaml). Every real object
-# (the CNPG Cluster + its owner-credential ExternalSecret) lives in the private
-# manifests source[2]. This keeps the exact 3-source shape the Tier 2 overlay + Tier
+# (the CNPG Cluster plus declarative consumer databases, roles, owner references,
+# and tightly scoped supporting RBAC) lives in private manifests source[2]. This
+# keeps the exact 3-source shape the Tier 2 overlay + Tier
 # 3 aggregator already know how to patch (identical to llamacpp / zfs-localpv), with
 # no changes to the shared machinery. The chart version, the $values path, and the
 # manifests path are PLACEHOLDERs pinned by the private Tier 2 overlay; the private
@@ -60,8 +61,8 @@ spec:
     - repoURL: PLACEHOLDER
       targetRevision: main
       ref: values
-    # env-specific raw manifests (the CNPG Cluster + the owner ExternalSecret) from
-    # the private config repo (repoURL injected by the private Tier 2 overlay).
+    # env-specific raw manifests (Cluster plus declarative databases, roles,
+    # owner references, and supporting RBAC) from the private config repo.
     - repoURL: PLACEHOLDER
       targetRevision: main
       path: argocd/apps/postgresql/environments/PLACEHOLDER/manifests
