@@ -359,7 +359,7 @@ class HindsightManifests(unittest.TestCase):
         )
 
     def test_final_images_provenance_and_home_are_exact(self) -> None:
-        self.assertEqual(self.catalog["contract"]["contractVersion"], 4)
+        self.assertEqual(self.catalog["contract"]["contractVersion"], 5)
         self.assertEqual(
             self.catalog["contract"]["imageProvenance"],
             v.EXPECTED_IMAGE_PROVENANCE,
@@ -431,6 +431,10 @@ class HindsightManifests(unittest.TestCase):
 
     def test_inference_and_traefik_flows_are_exact(self) -> None:
         network = self.catalog["contract"]["network"]
+        self.assertEqual(
+            {key: network[key] for key in v.EXPECTED_INFERENCE},
+            v.EXPECTED_INFERENCE,
+        )
         inference = self.resource("CiliumNetworkPolicy", "allow-api-to-bifrost")[
             "spec"
         ]["egress"][0]
@@ -465,6 +469,14 @@ class HindsightManifests(unittest.TestCase):
             ingress["toPorts"],
             [{"ports": [{"protocol": "TCP", "port": "3000"}]}],
         )
+
+    def test_inference_provider_model_and_destination_drift_is_rejected(self) -> None:
+        for field in v.EXPECTED_INFERENCE:
+            with self.subTest(field=field):
+                self.catalog = copy.deepcopy(self.original)
+                self.catalog["contract"]["network"][field] = "synthetic"
+                with self.assertRaisesRegex(v.Invalid, "^CONTRACT_NETWORK_INVALID$"):
+                    v.validate_contract(self.catalog["contract"])
 
     def test_lan_ingress_is_ui_only_and_uses_default_tls_store(self) -> None:
         ingress = self.resource("Ingress", "hindsight-ui")

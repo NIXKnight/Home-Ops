@@ -57,6 +57,11 @@ EXPECTED_IMAGE_PROVENANCE = {
     "sourceMismatchApproved": True,
     "imageProvenanceApproved": True,
 }
+EXPECTED_INFERENCE = {
+    "expectedInferenceProvider": "openai",
+    "expectedInferenceModel": "llamacpp/qwen3.8-27b",
+    "expectedInferenceBaseURL": "http://bifrost.bifrost.svc.cluster.local:8080/v1",
+}
 FORBIDDEN_HINDSIGHT_KINDS = {
     "Cluster",
     "Database",
@@ -176,6 +181,8 @@ CONTRACT_SHAPE = {
         "databasePort": int,
         "inferencePort": int,
         "ingressPort": int,
+        "expectedInferenceProvider": str,
+        "expectedInferenceModel": str,
         "expectedInferenceBaseURL": str,
     },
     "exposure": {
@@ -305,7 +312,7 @@ def _valid_identifier(value: str) -> bool:
 def validate_contract(contract: Document) -> None:
     """Validate references and safe settings without reading secret values."""
     contract_shape(contract, CONTRACT_SHAPE)
-    require(contract["contractVersion"] == 4, "CONTRACT_VERSION_UNSUPPORTED")
+    require(contract["contractVersion"] == 5, "CONTRACT_VERSION_UNSUPPORTED")
     require(
         contract["imageProvenance"] == EXPECTED_IMAGE_PROVENANCE,
         "CONTRACT_IMAGE_PROVENANCE_INVALID",
@@ -580,8 +587,7 @@ def validate_contract(contract: Document) -> None:
             "app.kubernetes.io/name": "bifrost",
         }
         and network["inferencePort"] == 8080
-        and network["expectedInferenceBaseURL"]
-        == "http://bifrost.bifrost.svc.cluster.local:8080/v1"
+        and {key: network[key] for key in EXPECTED_INFERENCE} == EXPECTED_INFERENCE
         and network["ingressNamespace"] == "traefik"
         and network["ingressPodLabels"]
         == {

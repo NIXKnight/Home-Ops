@@ -64,10 +64,11 @@ Inference uses the existing in-cluster Bifrost server through its OpenAI-compati
 `http://bifrost.bifrost.svc.cluster.local:8080/v1`
 
 Provider, model, base URL, and API key remain existing individual SecretKeyRefs. No
-secret value is authored or inspected. The ExternalSecret-managed provider must select
-the OpenAI-compatible shape, and its managed base-URL value must exactly match the
-nonsecret destination above. The managed model and API-key values must identify a model
-and credential already valid in Bifrost.
+secret value is authored or inspected. Their nonsecret expected contract is exact:
+provider `openai`, model `llamacpp/qwen3.8-27b`, and the Bifrost `/v1` destination above.
+The managed API-key value remains the existing Bifrost virtual key named `hindsight`,
+which is restricted to provider `llamacpp`; the credential itself must never be read or
+rendered.
 
 The inference approval is recorded as true from the Operator's explicit decision. The
 only inference egress policy selects the Hindsight API and the live Bifrost server pod
@@ -131,7 +132,11 @@ Offline activation validation must report exactly these two blockers:
 - `SHARED_DATABASE_UNAPPROVED`;
 - `OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`.
 
-Neither flag may be changed based on file validation alone.
+Neither flag may be changed based on file validation alone. The upstream llama.cpp
+endpoint at `https://llamacpp.h.nixknight.pk` is currently unavailable, so runtime
+acceptance remains blocked under
+`OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`. Do not weaken validation or
+mark runtime acceptance complete until a synthetic end-to-end inference check succeeds.
 
 ## Validation boundary
 
