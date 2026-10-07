@@ -191,13 +191,10 @@ class HindsightManifests(unittest.TestCase):
             ],
         )
 
-    def test_activation_has_exactly_two_live_gates(self) -> None:
-        expected = {
-            "SHARED_DATABASE_UNAPPROVED",
-            "OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED",
-        }
+    def test_activation_has_exactly_one_live_gate(self) -> None:
+        expected = {"OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED"}
         failures = v.activation_failures(self.catalog)
-        self.assertEqual(len(failures), 2)
+        self.assertEqual(len(failures), 1)
         self.assertEqual(set(failures), expected)
         self.assertFalse(any(code.startswith("IMAGE_") for code in failures))
         self.assertNotIn("INFERENCE_EGRESS_UNAPPROVED", failures)
@@ -210,7 +207,8 @@ class HindsightManifests(unittest.TestCase):
             self.assertEqual(v.main(self.cli_args()), 1)
         text = output.getvalue()
         self.assertIn("NOT deployment-ready", text)
-        self.assertIn("SHARED_DATABASE_UNAPPROVED", text)
+        self.assertIn("OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED", text)
+        self.assertNotIn("SHARED_DATABASE_UNAPPROVED", text)
         self.assertNotIn("INFERENCE_EGRESS_EXCEPTION_MISSING", text)
         self.assertNotIn("remoteKey", text)
 

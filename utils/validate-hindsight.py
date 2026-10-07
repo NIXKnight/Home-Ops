@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Read-only, offline validation for the Hindsight activation configuration.
 
-``--scaffolding`` validates authored structure while permitting the two deliberately
-unresolved live gates. Default mode additionally reports fixed activation
+``--scaffolding`` validates authored structure while permitting the deliberately
+unresolved live gate. Default mode additionally reports fixed activation
 categories. Neither mode reads secret values, contacts a cluster, or proves runtime
 readiness. Only explicitly named files below caller-approved roots are read.
 """
@@ -565,7 +565,7 @@ def validate_contract(contract: Document) -> None:
         contract["activationGates"]["namespaceAnnotations"]
         == {
             "hindsight/inference-egress-approved": "true",
-            "hindsight/shared-database-approved": "false",
+            "hindsight/shared-database-approved": "true",
             "hindsight/operator-preflight-approved": "false",
         },
         "CONTRACT_ACTIVATION_GATES_INVALID",

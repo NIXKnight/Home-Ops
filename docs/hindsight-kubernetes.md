@@ -53,8 +53,8 @@ role connection limit is 20. The explicit Operator decision remains
 `PGSSLMODE=disable`; do not add PostgreSQL TLS resources or projections.
 
 The DSN and credentials remain nonoptional, individual SecretKeyRefs. Never place,
-render, inspect, or print their values. The shared-database approval stays false until
-readiness is verified after the first platform push.
+render, inspect, or print their values. The shared-database approval is true only after
+separately authorized live acceptance verified readiness.
 
 ## Inference contract
 
@@ -127,16 +127,14 @@ pruned.
 
 ## Remaining activation gates
 
-Offline activation validation must report exactly these two blockers:
+Offline activation validation must report exactly one blocker:
 
-- `SHARED_DATABASE_UNAPPROVED`;
 - `OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`.
 
-Neither flag may be changed based on file validation alone. The upstream llama.cpp
-endpoint at `https://llamacpp.h.nixknight.pk` is currently unavailable, so runtime
-acceptance remains blocked under
-`OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`. Do not weaken validation or
-mark runtime acceptance complete until a synthetic end-to-end inference check succeeds.
+The shared-database approval is true after separately authorized live acceptance. The
+Operator preflight and runtime acceptance flag remains false and may not be changed
+based on file validation alone. Do not weaken validation or mark runtime acceptance
+complete until the required synthetic end-to-end checks succeed.
 
 ## Validation boundary
 
