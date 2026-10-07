@@ -125,16 +125,15 @@ Do not combine publication with a live Argo sync. Rollback is a reviewed Git rev
 followed by an explicitly authorized reconciliation; retained database resources are not
 pruned.
 
-## Remaining activation gates
+## Activation acceptance record
 
-Offline activation validation must report exactly one blocker:
-
-- `OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`.
-
-The shared-database approval is true after separately authorized live acceptance. The
-Operator preflight and runtime acceptance flag remains false and may not be changed
-based on file validation alone. Do not weaken validation or mark runtime acceptance
-complete until the required synthetic end-to-end checks succeed.
+Offline activation validation must exit successfully with no blockers. All activation
+approvals are true after separately authorized live acceptance recorded: Argo Hindsight
+Synced/Healthy; all three ExternalSecrets Ready; both Deployments 1/1; API `/health`
+HTTP 200 healthy; UI `/api/health` HTTP 200 with the dataplane connected; shared
+database owner and extensions present with 25 public tables; and Bifrost completion
+HTTP 200 through the approved virtual key/model path. File validation does not
+independently prove those live facts.
 
 ## Validation boundary
 

@@ -144,7 +144,7 @@ class HindsightManifests(unittest.TestCase):
         }
         v.narrow_network_policies(policies, labels)
 
-    # Baseline behavior and the deliberately staged activation result.
+    # Baseline behavior and the accepted activation result.
 
     def test_scaffolding_has_eighteen_resources(self) -> None:
         resources = v.validate_scaffolding(self.catalog)
@@ -191,25 +191,18 @@ class HindsightManifests(unittest.TestCase):
             ],
         )
 
-    def test_activation_has_exactly_one_live_gate(self) -> None:
-        expected = {"OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED"}
-        failures = v.activation_failures(self.catalog)
-        self.assertEqual(len(failures), 1)
-        self.assertEqual(set(failures), expected)
-        self.assertFalse(any(code.startswith("IMAGE_") for code in failures))
-        self.assertNotIn("INFERENCE_EGRESS_UNAPPROVED", failures)
-        self.assertNotIn("INFERENCE_EGRESS_EXCEPTION_MISSING", failures)
+    def test_activation_has_no_blockers(self) -> None:
+        self.assertEqual(v.activation_failures(self.catalog), [])
 
     def test_cli_modes_are_distinct_and_safe(self) -> None:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.assertEqual(v.main(self.cli_args() + ["--scaffolding"]), 0)
-            self.assertEqual(v.main(self.cli_args()), 1)
+            self.assertEqual(v.main(self.cli_args()), 0)
         text = output.getvalue()
         self.assertIn("NOT deployment-ready", text)
-        self.assertIn("OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED", text)
-        self.assertNotIn("SHARED_DATABASE_UNAPPROVED", text)
-        self.assertNotIn("INFERENCE_EGRESS_EXCEPTION_MISSING", text)
+        self.assertIn("PASS: offline activation prerequisites only", text)
+        self.assertNotIn("BLOCKED:", text)
         self.assertNotIn("remoteKey", text)
 
     def test_validation_does_not_network_or_write(self) -> None:
@@ -225,7 +218,7 @@ class HindsightManifests(unittest.TestCase):
         ):
             loaded = v.load_catalog(PUBLIC, self.internal, self.environment)
             v.validate_scaffolding(loaded)
-            self.assertTrue(v.activation_failures(loaded))
+            self.assertEqual(v.activation_failures(loaded), [])
 
     def test_missing_contract_fails_before_other_inputs(self) -> None:
         output = io.StringIO()
