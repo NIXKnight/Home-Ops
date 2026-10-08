@@ -1,9 +1,8 @@
 # Hindsight Kubernetes activation configuration
 
-Hindsight is registered in the private environment root, but its child Application
-intentionally has **no automated sync**. Publication may create the child Application;
-the initial child sync remains a separate manual Operator action after the two remaining
-live gates are satisfied.
+Hindsight is registered in the private environment root and is currently live
+`Synced`/`Healthy`. Its child Application intentionally has **no automated sync**;
+future reconciliations remain separate, explicitly authorized manual Operator actions.
 
 ## Public structure and private configuration
 
@@ -77,29 +76,34 @@ identity using namespace `bifrost` plus all three labels
 `app.kubernetes.io/name=bifrost`, limited to TCP 8080. There is no world, CIDR, FQDN,
 HuggingFace, or other Internet egress.
 
-## LAN UI and network policy
+## LAN UI/API and network policy
 
-The UI is exposed on the established `hindsight` host under the environment's LAN DNS
-zone through a standard `networking.k8s.io/v1` Ingress with `ingressClassName: traefik`.
-Its hosts-only TLS entry has no `secretName`, so Traefik uses the environment's default
-TLSStore wildcard certificate. The API has no Ingress and both Services remain
-`ClusterIP`; no `LoadBalancer`, `NodePort`, or external IP is introduced.
+The UI and API have separate standard `networking.k8s.io/v1` Ingress resources with
+`ingressClassName: traefik`. The API route is exactly
+`hindsight-api.h.nixknight.pk` and targets the `hindsight-api` ClusterIP Service on
+TCP 8888. Both hosts-only TLS entries omit `secretName`, so Traefik uses the
+environment's default TLSStore wildcard certificate, and external-dns-private discovers
+both hosts from their Ingress rules. Both Services remain `ClusterIP`; no
+`LoadBalancer`, `NodePort`, or external IP is introduced.
 
-Authentik ForwardAuth is deliberately not added. Hindsight UI already enforces its
-secret-managed UI access key, and a perimeter middleware would create a conflicting
-double-auth flow. The ingress Cilium policy permits TCP 3000 only from live Traefik pods
-in namespace `traefik`, selected by the observed chart labels. All other ingress remains
-default-denied.
+No middleware annotation is added to the API Ingress. The UI retains its existing access
+key flow, while the API continues to require Hindsight's tenant API key extension; LAN
+exposure does not bypass or replace application authentication. The Traefik ingress
+policies select only the observed Traefik pod labels in namespace `traefik`, permitting
+TCP 3000 to the UI and TCP 8888 to the API. The existing direct UI-to-API flow remains
+narrowly allowed. All other ingress remains default-denied.
 
-Seven namespaced `cilium.io/v2` policies now provide exactly:
+The Hindsight manifest inventory is exactly 20 resources, including two Ingresses and
+eight namespaced `cilium.io/v2` policies. Those policies provide exactly:
 
 1. namespace-wide ingress/egress default deny;
 2. DNS to kube-dns on TCP/UDP 53;
 3. UI egress to API on TCP 8888;
 4. matching API ingress from UI on TCP 8888;
 5. API egress to the shared PostgreSQL pods on TCP 5432;
-6. API inference egress to Bifrost on TCP 8080; and
-7. UI ingress from Traefik on TCP 3000.
+6. API inference egress to Bifrost on TCP 8080;
+7. UI ingress from Traefik on TCP 3000; and
+8. API ingress from Traefik on TCP 8888.
 
 ## Credential rotation
 

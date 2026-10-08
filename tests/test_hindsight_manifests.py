@@ -146,15 +146,15 @@ class HindsightManifests(unittest.TestCase):
 
     # Baseline behavior and the accepted activation result.
 
-    def test_scaffolding_has_eighteen_resources(self) -> None:
+    def test_scaffolding_has_twenty_resources(self) -> None:
         resources = v.validate_scaffolding(self.catalog)
-        self.assertEqual(len(resources), 18)
+        self.assertEqual(len(resources), 20)
         policies = [
             document
             for (kind, _), document in resources.items()
             if kind == "CiliumNetworkPolicy"
         ]
-        self.assertEqual(len(policies), 7)
+        self.assertEqual(len(policies), 8)
         self.assertTrue(
             all(policy["apiVersion"] == "cilium.io/v2" for policy in policies)
         )
@@ -350,7 +350,7 @@ class HindsightManifests(unittest.TestCase):
         )
 
     def test_final_images_provenance_and_home_are_exact(self) -> None:
-        self.assertEqual(self.catalog["contract"]["contractVersion"], 5)
+        self.assertEqual(self.catalog["contract"]["contractVersion"], 6)
         self.assertEqual(
             self.catalog["contract"]["imageProvenance"],
             v.EXPECTED_IMAGE_PROVENANCE,
@@ -443,23 +443,25 @@ class HindsightManifests(unittest.TestCase):
             inference["toPorts"],
             [{"ports": [{"protocol": "TCP", "port": "8080"}]}],
         )
-        ingress = self.resource("CiliumNetworkPolicy", "allow-ui-from-traefik")["spec"][
-            "ingress"
-        ][0]
-        self.assertEqual(
-            ingress["fromEndpoints"][0]["matchLabels"],
-            {
-                "k8s:io.kubernetes.pod.namespace": network["ingressNamespace"],
-                **{
-                    f"k8s:{key}": value
-                    for key, value in network["ingressPodLabels"].items()
-                },
+        expected_peer = {
+            "k8s:io.kubernetes.pod.namespace": network["ingressNamespace"],
+            **{
+                f"k8s:{key}": value
+                for key, value in network["ingressPodLabels"].items()
             },
-        )
-        self.assertEqual(
-            ingress["toPorts"],
-            [{"ports": [{"protocol": "TCP", "port": "3000"}]}],
-        )
+        }
+        for role, port in (("ui", "3000"), ("api", "8888")):
+            with self.subTest(role=role):
+                ingress = self.resource(
+                    "CiliumNetworkPolicy", f"allow-{role}-from-traefik"
+                )["spec"]["ingress"][0]
+                self.assertEqual(
+                    ingress["fromEndpoints"][0]["matchLabels"], expected_peer
+                )
+                self.assertEqual(
+                    ingress["toPorts"],
+                    [{"ports": [{"protocol": "TCP", "port": port}]}],
+                )
 
     def test_inference_provider_model_and_destination_drift_is_rejected(self) -> None:
         for field in v.EXPECTED_INFERENCE:
@@ -469,23 +471,43 @@ class HindsightManifests(unittest.TestCase):
                 with self.assertRaisesRegex(v.Invalid, "^CONTRACT_NETWORK_INVALID$"):
                     v.validate_contract(self.catalog["contract"])
 
-    def test_lan_ingress_is_ui_only_and_uses_default_tls_store(self) -> None:
-        ingress = self.resource("Ingress", "hindsight-ui")
-        self.assertNotIn("annotations", ingress["metadata"])
-        self.assertEqual(ingress["spec"]["ingressClassName"], "traefik")
+    def test_lan_ingresses_are_exact_and_use_default_tls_store(self) -> None:
+        exposure = self.catalog["contract"]["exposure"]
+        expected = {
+            "hindsight-ui": (
+                exposure["hostname"],
+                "hindsight-ui",
+                3000,
+            ),
+            "hindsight-api": (
+                "hindsight-api.h.nixknight.pk",
+                "hindsight-api",
+                8888,
+            ),
+        }
+        for name, (hostname, service, port) in expected.items():
+            with self.subTest(name=name):
+                ingress = self.resource("Ingress", name)
+                self.assertNotIn("annotations", ingress["metadata"])
+                self.assertEqual(ingress["spec"]["ingressClassName"], "traefik")
+                self.assertEqual(ingress["spec"]["rules"][0]["host"], hostname)
+                backend = ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"][
+                    "service"
+                ]
+                self.assertEqual(backend, {"name": service, "port": {"number": port}})
+                self.assertEqual(ingress["spec"]["tls"][0]["hosts"], [hostname])
+                self.assertNotIn("secretName", ingress["spec"]["tls"][0])
+
+    def test_api_exposure_preserves_tenant_authentication(self) -> None:
+        contract = self.catalog["contract"]
         self.assertEqual(
-            ingress["spec"]["rules"][0]["http"]["paths"][0]["backend"]["service"][
-                "name"
-            ],
-            "hindsight-ui",
+            contract["exposure"]["apiAuthentication"], "hindsight-tenant-api-key"
         )
-        self.assertNotIn("secretName", ingress["spec"]["tls"][0])
-        self.assertFalse(
-            any(
-                document["kind"] == "Ingress"
-                and document["metadata"]["name"] == "hindsight-api"
-                for document in self.catalog["docs"]
-            )
+        self.assertEqual(
+            contract["workloads"]["api"]["literalEnv"][
+                "HINDSIGHT_API_TENANT_EXTENSION"
+            ],
+            "hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension",
         )
 
     def test_api_probe_contract_is_exact(self) -> None:

@@ -45,6 +45,7 @@ BASE_POLICIES = {
     "allow-api-to-db",
     "allow-api-to-bifrost",
     "allow-ui-from-traefik",
+    "allow-api-from-traefik",
 }
 EXPECTED_IMAGES = {
     "api": "ghcr.io/vectorize-io/hindsight-api@sha256:1ba631f950a04460feff6b1e212bad3cdf127b0cfb3d765bdcba12f512481d7b",
@@ -136,6 +137,11 @@ WORKLOAD_SHAPE = {
 }
 CONTRACT_SHAPE = {
     "contractVersion": int,
+    "inventory": {
+        "manifestFiles": ("list", str),
+        "resourceCount": int,
+        "ciliumNetworkPolicyCount": int,
+    },
     "imageProvenance": {
         "version": str,
         "imageSourceRevision": str,
@@ -181,6 +187,7 @@ CONTRACT_SHAPE = {
         "databasePort": int,
         "inferencePort": int,
         "ingressPort": int,
+        "apiIngressPort": int,
         "expectedInferenceProvider": str,
         "expectedInferenceModel": str,
         "expectedInferenceBaseURL": str,
@@ -190,8 +197,12 @@ CONTRACT_SHAPE = {
         "hostname": str,
         "serviceName": str,
         "servicePort": int,
+        "apiHostname": str,
+        "apiServiceName": str,
+        "apiServicePort": int,
         "tlsDefaultStore": bool,
         "authentication": str,
+        "apiAuthentication": str,
     },
     "activationGates": {"namespaceAnnotations": ("map", str)},
 }
@@ -312,7 +323,16 @@ def _valid_identifier(value: str) -> bool:
 def validate_contract(contract: Document) -> None:
     """Validate references and safe settings without reading secret values."""
     contract_shape(contract, CONTRACT_SHAPE)
-    require(contract["contractVersion"] == 5, "CONTRACT_VERSION_UNSUPPORTED")
+    require(contract["contractVersion"] == 6, "CONTRACT_VERSION_UNSUPPORTED")
+    require(
+        contract["inventory"]
+        == {
+            "manifestFiles": list(MANIFEST_FILES),
+            "resourceCount": 20,
+            "ciliumNetworkPolicyCount": 8,
+        },
+        "CONTRACT_INVENTORY_INVALID",
+    )
     require(
         contract["imageProvenance"] == EXPECTED_IMAGE_PROVENANCE,
         "CONTRACT_IMAGE_PROVENANCE_INVALID",
@@ -594,18 +614,23 @@ def validate_contract(contract: Document) -> None:
             "app.kubernetes.io/instance": "traefik-traefik",
             "app.kubernetes.io/name": "traefik",
         }
-        and network["ingressPort"] == ui["port"],
+        and network["ingressPort"] == ui["port"]
+        and network["apiIngressPort"] == api["port"],
         "CONTRACT_NETWORK_INVALID",
     )
+    host_pattern = r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?"
     require(
         exposure["ingressClassName"] == "traefik"
-        and bool(
-            re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?", exposure["hostname"])
-        )
+        and bool(re.fullmatch(host_pattern, exposure["hostname"]))
         and exposure["serviceName"] == "hindsight-ui"
         and exposure["servicePort"] == ui["port"]
+        and exposure["apiHostname"] == "hindsight-api.h.nixknight.pk"
+        and bool(re.fullmatch(host_pattern, exposure["apiHostname"]))
+        and exposure["apiServiceName"] == "hindsight-api"
+        and exposure["apiServicePort"] == api["port"]
         and exposure["tlsDefaultStore"] is True
-        and exposure["authentication"] == "hindsight-ui-access-key",
+        and exposure["authentication"] == "hindsight-ui-access-key"
+        and exposure["apiAuthentication"] == "hindsight-tenant-api-key",
         "CONTRACT_EXPOSURE_INVALID",
     )
 
@@ -757,6 +782,7 @@ def load_catalog(public: Path, internal: Path, environment: str) -> Catalog:
         internal, *environment_directory.relative_to(internal).parts, "manifests"
     )
     kustomization = read_yaml(manifest_directory / "kustomization.yaml", internal)
+    manifest_files = tuple(contract["inventory"]["manifestFiles"])
     require(
         kustomization.get("apiVersion") == "kustomize.config.k8s.io/v1beta1"
         and kustomization.get("kind") == "Kustomization"
@@ -764,17 +790,17 @@ def load_catalog(public: Path, internal: Path, environment: str) -> Catalog:
         "MANIFEST_KUSTOMIZATION_STRUCTURE",
     )
     require(
-        sorted(kustomization["resources"]) == sorted(MANIFEST_FILES),
+        sorted(kustomization["resources"]) == sorted(manifest_files),
         "MANIFEST_MEMBERSHIP",
     )
     require(
         _directory_inventory(manifest_directory, internal)
-        == set(MANIFEST_FILES) | {"kustomization.yaml"},
+        == set(manifest_files) | {"kustomization.yaml"},
         "MANIFEST_FILE_INVENTORY",
     )
     documents = [
         document
-        for filename in MANIFEST_FILES
+        for filename in manifest_files
         for document in read_yaml(
             manifest_directory / filename, internal, multiple=True
         )
@@ -1398,6 +1424,21 @@ def _validate_networks(resources: ResourceIndex, contract: Document) -> None:
                 )
             ],
         ),
+        (
+            "allow-api-from-traefik",
+            api_labels,
+            "ingress",
+            [
+                rule(
+                    "fromEndpoints",
+                    peer(
+                        contract["network"]["ingressPodLabels"],
+                        contract["network"]["ingressNamespace"],
+                    ),
+                    contract["network"]["apiIngressPort"],
+                )
+            ],
+        ),
     )
     for name, selector, direction, rules in expected:
         require(
@@ -1416,58 +1457,72 @@ def _validate_networks(resources: ResourceIndex, contract: Document) -> None:
         },
         "INFERENCE_POLICY_EVIDENCE",
     )
-    require(
-        annotations(resources["CiliumNetworkPolicy", "allow-ui-from-traefik"])
-        == {
-            "hindsight/ingress-purpose": "lan-ui-via-traefik",
-            "hindsight/source-evidence": "live-traefik-pod-labels-read-only",
-        },
-        "INGRESS_POLICY_EVIDENCE",
-    )
+    expected_evidence = {
+        "allow-ui-from-traefik": "lan-ui-via-traefik",
+        "allow-api-from-traefik": "lan-api-via-traefik",
+    }
+    for name, purpose in expected_evidence.items():
+        require(
+            annotations(resources["CiliumNetworkPolicy", name])
+            == {
+                "hindsight/ingress-purpose": purpose,
+                "hindsight/source-evidence": "live-traefik-pod-labels-read-only",
+            },
+            "INGRESS_POLICY_EVIDENCE",
+        )
 
 
 def _validate_ingress(resources: ResourceIndex, contract: Document) -> None:
-    """Validate the single LAN UI route and keep the API unexposed."""
-    ingress = resources["Ingress", "hindsight-ui"]
-    metadata = resource_metadata(ingress)
+    """Validate the exact LAN UI and tenant-authenticated API routes."""
     exposure = contract["exposure"]
-    require(
-        metadata.get("labels") == {"app.kubernetes.io/name": "hindsight-ui"}
-        and not metadata.get("annotations"),
-        "INGRESS_METADATA_CONTRACT",
-    )
-    require(
-        ingress.get("apiVersion") == "networking.k8s.io/v1"
-        and ingress.get("spec")
-        == {
-            "ingressClassName": exposure["ingressClassName"],
-            "rules": [
-                {
-                    "host": exposure["hostname"],
-                    "http": {
-                        "paths": [
-                            {
-                                "path": "/",
-                                "pathType": "Prefix",
-                                "backend": {
-                                    "service": {
-                                        "name": exposure["serviceName"],
-                                        "port": {"number": exposure["servicePort"]},
-                                    }
-                                },
-                            }
-                        ]
-                    },
-                }
-            ],
-            "tls": [{"hosts": [exposure["hostname"]]}],
-        },
-        "INGRESS_UI_ONLY_CONTRACT",
-    )
-    require(
-        all((kind, name) != ("Ingress", "hindsight-api") for kind, name in resources),
-        "API_INGRESS_FORBIDDEN",
-    )
+    routes = {
+        "hindsight-ui": (
+            exposure["hostname"],
+            exposure["serviceName"],
+            exposure["servicePort"],
+        ),
+        "hindsight-api": (
+            exposure["apiHostname"],
+            exposure["apiServiceName"],
+            exposure["apiServicePort"],
+        ),
+    }
+    for name, (hostname, service_name, service_port) in routes.items():
+        ingress = resources["Ingress", name]
+        metadata = resource_metadata(ingress)
+        require(
+            metadata.get("labels") == {"app.kubernetes.io/name": name}
+            and not metadata.get("annotations"),
+            "INGRESS_METADATA_CONTRACT",
+        )
+        require(
+            ingress.get("apiVersion") == "networking.k8s.io/v1"
+            and ingress.get("spec")
+            == {
+                "ingressClassName": exposure["ingressClassName"],
+                "rules": [
+                    {
+                        "host": hostname,
+                        "http": {
+                            "paths": [
+                                {
+                                    "path": "/",
+                                    "pathType": "Prefix",
+                                    "backend": {
+                                        "service": {
+                                            "name": service_name,
+                                            "port": {"number": service_port},
+                                        }
+                                    },
+                                }
+                            ]
+                        },
+                    }
+                ],
+                "tls": [{"hosts": [hostname]}],
+            },
+            "INGRESS_ROUTE_CONTRACT",
+        )
 
 
 def _validate_probe_contract(container: Document, role: str, budget: int) -> None:
@@ -1671,12 +1726,17 @@ def validate_scaffolding(catalog: Catalog) -> ResourceIndex:
         for kind in ("Deployment", "Service")
         for role in ("api", "ui")
     }
-    expected.add(("Ingress", "hindsight-ui"))
+    expected |= {("Ingress", f"hindsight-{role}") for role in ("api", "ui")}
     expected |= {("ExternalSecret", name) for name in workload_secret_names}
     expected |= {("CiliumNetworkPolicy", name) for name in BASE_POLICIES}
     require(expected <= set(resources), "RESOURCE_INVENTORY_MISSING")
     require(set(resources) == expected, "UNEXPECTED_RESOURCE")
-    require(len(expected) == 18, "RESOURCE_INVENTORY_CONTRACT_INVALID")
+    inventory = contract["inventory"]
+    require(
+        len(expected) == inventory["resourceCount"]
+        and len(BASE_POLICIES) == inventory["ciliumNetworkPolicyCount"],
+        "RESOURCE_INVENTORY_CONTRACT_INVALID",
+    )
 
     namespace = resources["Namespace", "hindsight"]
     require(protected(namespace), "NAMESPACE_PRUNE_DELETE_PROTECTION")
