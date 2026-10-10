@@ -1,0 +1,36 @@
+[Unit]
+Description=Hermes CABAL read-only WhatsApp bridge
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=600
+StartLimitBurst=5
+
+[Service]
+Type=simple
+User={{ hermes_cabal_whatsapp_service_user }}
+Group={{ hermes_cabal_whatsapp_service_group }}
+# Root reads this mode-0600 file before systemd applies User/Group.
+EnvironmentFile={{ hermes_cabal_whatsapp_env_file }}
+ExecStart={{ hermes_cabal_whatsapp_binary }}
+WorkingDirectory={{ hermes_cabal_whatsapp_data_dir }}
+Restart=on-failure
+RestartSec=30
+RestartPreventExitStatus=2
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ReadWritePaths={{ hermes_cabal_whatsapp_data_dir }}
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,36 @@
+---
+- name: Validate Hermes CABAL inputs
+  ansible.builtin.import_tasks: preflight.yml
+  tags:
+    - hermes
+    - hermes-runtime
+    - hermes-home
+    - hindsight-mcp
+    - whatsapp-mcp
+    - hermes-service
+
+- name: Prepare the exact Hermes runtime
+  ansible.builtin.import_tasks: runtime.yml
+  tags:
+    - hermes
+    - hermes-runtime
+
+- name: Reconcile the isolated Hermes home
+  ansible.builtin.import_tasks: home.yml
+  tags:
+    - hermes
+    - hermes-home
+    - hindsight-mcp
+    - whatsapp-mcp
+
+- name: Reconcile the Hermes system service
+  ansible.builtin.import_tasks: service.yml
+  tags:
+    - hermes
+    - hermes-service
+
+- name: Verify the Hermes deployment contract
+  ansible.builtin.import_tasks: verify.yml
+  tags:
+    - hermes
+    - hermes-verify

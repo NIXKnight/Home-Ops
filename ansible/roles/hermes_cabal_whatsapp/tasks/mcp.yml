@@ -1,0 +1,67 @@
+---
+- name: Read the selected uv version for WhatsApp MCP
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_cabal_whatsapp_uv }}"
+      - --version
+  register: hermes_cabal_whatsapp_uv_version_result
+  changed_when: false
+  when: hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Read the selected Python version for WhatsApp MCP
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_cabal_whatsapp_python }}"
+      - --version
+  register: hermes_cabal_whatsapp_python_version_result
+  changed_when: false
+  when: hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Require uv 0.9.30 and Python 3.13
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_uv_version_result.stdout | trim == "uv " ~ hermes_cabal_whatsapp_uv_version
+      - >-
+        (hermes_cabal_whatsapp_python_version_result.stdout
+        ~ hermes_cabal_whatsapp_python_version_result.stderr) is search('Python 3\\.13\\.')
+    fail_msg: >-
+      WhatsApp MCP preparation requires the selected uv 0.9.30 binary and Python 3.13 interpreter.
+  when: hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Synchronize the locked WhatsApp MCP environment
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_cabal_whatsapp_uv }}"
+      - sync
+      - --locked
+      - --no-default-groups
+      - --python
+      - "{{ hermes_cabal_whatsapp_python }}"
+      - --project
+      - "{{ hermes_cabal_whatsapp_mcp_project }}"
+    creates: "{{ hermes_cabal_whatsapp_mcp_venv }}/bin/whatsapp-mcp"
+  become: true
+  become_user: "{{ hermes_cabal_whatsapp_owner }}"
+  environment:
+    HOME: "{{ hermes_cabal_whatsapp_owner_home }}"
+    UV_PROJECT_ENVIRONMENT: "{{ hermes_cabal_whatsapp_mcp_venv }}"
+  when: hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Read the locked WhatsApp MCP package version
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_cabal_whatsapp_mcp_venv }}/bin/python"
+      - -c
+      - >-
+        import importlib.metadata;
+        print(importlib.metadata.version('whatsapp-mcp'))
+  register: hermes_cabal_whatsapp_mcp_version_result
+  changed_when: false
+  when: hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Require the expected WhatsApp MCP package
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_mcp_version_result.stdout | trim == "1.0.0"
+    fail_msg: The exact source did not produce the expected whatsapp-mcp 1.0.0 package.
+  when: hermes_cabal_whatsapp_mcp_sync | bool

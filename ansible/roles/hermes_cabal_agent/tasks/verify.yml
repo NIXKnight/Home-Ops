@@ -1,0 +1,79 @@
+---
+- name: Check forbidden imported home artifacts
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ hermes_cabal_agent_home }}/.env"
+    - "{{ hermes_cabal_agent_home }}/memories/MEMORY.md"
+    - "{{ hermes_cabal_agent_home }}/hindsight/config.json"
+    - "{{ hermes_cabal_agent_home }}/plugins/hindsight"
+  register: hermes_cabal_agent_forbidden_artifacts
+  when: hermes_cabal_agent_home_manage | bool
+
+- name: Require forbidden prepared-home artifacts to remain absent
+  ansible.builtin.assert:
+    that:
+      - not (hermes_cabal_agent_forbidden_artifacts.results | map(attribute='stat.exists') | max)
+    fail_msg: >-
+      The isolated home contains a forbidden credential, native Hindsight,
+      MEMORY, or plugin artifact; only explicit portable assets may be copied.
+  when: hermes_cabal_agent_home_manage | bool
+
+- name: Validate the rendered Hermes MCP policy without displaying it
+  ansible.builtin.command:
+    argv:
+      - "{{ hermes_cabal_agent_venv }}/bin/python"
+      - -c
+      - |
+        import pathlib, sys, yaml
+        cfg = yaml.safe_load(pathlib.Path(sys.argv[1]).read_text())
+        assert cfg.get("plugins", {}).get("enabled") == []
+        memory = cfg.get("memory", {})
+        assert "provider" not in memory
+        assert memory.get("memory_enabled") is False
+        assert memory.get("nudge_interval") == 0
+        servers = cfg.get("mcp_servers", {})
+        hindsight = servers["hindsight"]
+        assert hindsight.get("enabled") is True
+        assert hindsight.get("trust") == "untrusted"
+        assert hindsight["tools"]["include"] == ["retain", "recall", "reflect"]
+        whatsapp = servers["whatsapp_readonly"]
+        assert whatsapp.get("trust") == "untrusted"
+        assert whatsapp["tools"]["include"] == ["get_messages", "get_contact"]
+        for server in (hindsight, whatsapp):
+            assert server["tools"]["resources"] is False
+            assert server["tools"]["prompts"] is False
+            assert server["sampling"]["enabled"] is False
+            assert server["elicitation"]["enabled"] is False
+        assert whatsapp["env"]["MCP_TRANSPORT"] == "stdio"
+        assert whatsapp["env"]["LOG_LEVEL"] == "WARNING"
+        print("ok")
+      - "{{ hermes_cabal_agent_home }}/config.yaml"
+  register: hermes_cabal_agent_config_validation
+  changed_when: false
+  failed_when: false
+  no_log: true
+  when:
+    - hermes_cabal_agent_home_manage | bool
+    - hermes_cabal_agent_runtime_install | bool
+
+- name: Require the rendered MCP-only policy to validate
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_agent_config_validation.rc == 0
+      - hermes_cabal_agent_config_validation.stdout | trim == "ok"
+    fail_msg: The rendered Hermes config failed the fixed MCP-only policy checks.
+  when:
+    - hermes_cabal_agent_home_manage | bool
+    - hermes_cabal_agent_runtime_install | bool
+
+- name: Read activated Hermes service state
+  ansible.builtin.service_facts:
+  when: hermes_cabal_agent_service_enabled | bool
+
+- name: Require the activated Hermes service to be running
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.services[hermes_cabal_agent_service_name].state == "running"
+    fail_msg: The gated Hermes CABAL service is not active.
+  when: hermes_cabal_agent_service_enabled | bool

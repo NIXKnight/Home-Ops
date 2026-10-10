@@ -1,0 +1,55 @@
+---
+- name: Clone the exact WhatsApp source revision into its versioned path
+  ansible.builtin.git:
+    repo: "{{ hermes_cabal_whatsapp_repo }}"
+    dest: "{{ hermes_cabal_whatsapp_source_dir }}"
+    version: "{{ hermes_cabal_whatsapp_commit }}"
+    update: true
+    force: true
+    recursive: false
+  register: hermes_cabal_whatsapp_source_checkout
+  when: hermes_cabal_whatsapp_source_install | bool
+
+- name: Read the checked-out WhatsApp revision
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ hermes_cabal_whatsapp_source_dir }}"
+      - rev-parse
+      - HEAD
+  register: hermes_cabal_whatsapp_source_revision
+  changed_when: false
+  when: >-
+    hermes_cabal_whatsapp_source_install | bool
+    or hermes_cabal_whatsapp_bridge_build | bool
+    or hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Check the versioned WhatsApp source for drift
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ hermes_cabal_whatsapp_source_dir }}"
+      - status
+      - --porcelain=v1
+      - --untracked-files=all
+  register: hermes_cabal_whatsapp_source_status
+  changed_when: false
+  when: >-
+    hermes_cabal_whatsapp_source_install | bool
+    or hermes_cabal_whatsapp_bridge_build | bool
+    or hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Require the exact clean WhatsApp source revision
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_source_revision.stdout | trim == hermes_cabal_whatsapp_commit
+      - hermes_cabal_whatsapp_source_status.stdout | trim == ""
+    fail_msg: >-
+      The Ansible-owned WhatsApp source is not the exact clean approved revision.
+      Do not substitute a controller working tree or continue with local drift.
+  when: >-
+    hermes_cabal_whatsapp_source_install | bool
+    or hermes_cabal_whatsapp_bridge_build | bool
+    or hermes_cabal_whatsapp_mcp_sync | bool

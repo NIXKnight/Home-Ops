@@ -1,0 +1,86 @@
+---
+# Preparation is opt-in. The instance inventory explicitly selects artifacts to
+# stage; neither the bridge nor its Hermes-owned stdio child is activated here.
+hermes_cabal_whatsapp_application_root: "/opt/CABAL"
+hermes_cabal_whatsapp_owner: "saadali"
+hermes_cabal_whatsapp_owner_home: "/home/saadali"
+
+hermes_cabal_whatsapp_repo: "https://github.com/NIXKnight/WhatsApp-MCP-Server.git"
+hermes_cabal_whatsapp_commit: "0fab6208fd6e457efcd348d97f3e84e4832357e2"
+hermes_cabal_whatsapp_root: "{{ hermes_cabal_whatsapp_application_root }}/whatsapp"
+hermes_cabal_whatsapp_source_dir: "{{ hermes_cabal_whatsapp_root }}/src/{{ hermes_cabal_whatsapp_commit }}"
+hermes_cabal_whatsapp_bin_dir: "{{ hermes_cabal_whatsapp_root }}/bin"
+hermes_cabal_whatsapp_binary: >-
+  {{ hermes_cabal_whatsapp_bin_dir }}/whatsapp-bridge-{{ hermes_cabal_whatsapp_commit }}
+hermes_cabal_whatsapp_manifest: "{{ hermes_cabal_whatsapp_binary }}.sha256"
+
+# Artifact preparation switches. They deliberately default off in the reusable role.
+hermes_cabal_whatsapp_go_install: false
+hermes_cabal_whatsapp_source_install: false
+hermes_cabal_whatsapp_bridge_build: false
+hermes_cabal_whatsapp_mcp_sync: false
+hermes_cabal_whatsapp_force_rebuild: false
+
+# Exact Go toolchain and reproducible bridge build policy.
+hermes_cabal_whatsapp_go_version: "1.25.0"
+hermes_cabal_whatsapp_go_archive_url: >-
+  https://go.dev/dl/go{{ hermes_cabal_whatsapp_go_version }}.linux-amd64.tar.gz
+hermes_cabal_whatsapp_go_archive_checksum: >-
+  sha256:2852af0cb20a13139b3448992e69b868e50ed0f8a1e5940ee1de9e19a123b613
+hermes_cabal_whatsapp_go_root: >-
+  {{ hermes_cabal_whatsapp_application_root }}/toolchains/go/{{ hermes_cabal_whatsapp_go_version }}
+hermes_cabal_whatsapp_go_binary: "{{ hermes_cabal_whatsapp_go_root }}/bin/go"
+hermes_cabal_whatsapp_go_cache_dir: "/var/cache/hermes-cabal/go"
+hermes_cabal_whatsapp_go_module_cache_dir: "/var/cache/hermes-cabal/mod"
+
+# Existing exact Python/uv runtime selected by the Operator.
+hermes_cabal_whatsapp_python: "/usr/bin/python3.13"
+hermes_cabal_whatsapp_uv: "/home/saadali/.local/bin/uv"
+hermes_cabal_whatsapp_uv_version: "0.9.30"
+hermes_cabal_whatsapp_mcp_project: "{{ hermes_cabal_whatsapp_source_dir }}/mcp-server"
+hermes_cabal_whatsapp_mcp_venv: >-
+  {{ hermes_cabal_whatsapp_root }}/venvs/mcp-{{ hermes_cabal_whatsapp_commit }}
+
+# Dedicated bridge identity and private state. Pairing is always manual.
+hermes_cabal_whatsapp_service_user: "hermes-wa-bridge"
+hermes_cabal_whatsapp_service_group: "hermes-wa-bridge"
+hermes_cabal_whatsapp_service_name: "hermes-cabal-whatsapp-bridge.service"
+hermes_cabal_whatsapp_data_dir: "/var/lib/hermes-cabal-whatsapp"
+hermes_cabal_whatsapp_config_dir: "{{ hermes_cabal_whatsapp_application_root }}/config"
+hermes_cabal_whatsapp_env_file: "{{ hermes_cabal_whatsapp_config_dir }}/whatsapp-bridge.env"
+hermes_cabal_whatsapp_bind: "127.0.0.1:8080"
+hermes_cabal_whatsapp_bridge_url: "http://127.0.0.1:8080"
+hermes_cabal_whatsapp_log_level: "warn"
+
+# Service activation remains off until every explicit operational gate is accepted.
+hermes_cabal_whatsapp_bridge_enabled: false
+hermes_cabal_whatsapp_pairing_accepted: false
+hermes_cabal_whatsapp_readiness_accepted: false
+hermes_cabal_whatsapp_database_accepted: false
+hermes_cabal_whatsapp_database_backup_accepted: false
+hermes_cabal_whatsapp_database_tls_accepted: false
+hermes_cabal_whatsapp_database_pg18_migration_accepted: false
+
+# External Kubernetes CNPG connection. Preparation installs only client-side
+# material and performs non-mutating probes; the bridge owns schema migrations.
+# The generic postgresql-lan Service admits trusted LAN range 192.168.0.0/23.
+# ExternalDNS publishes the hostname; the address is its exact approved target.
+# The bridge keeps its dedicated whatsapp_bridge database and role.
+hermes_cabal_whatsapp_database_prepare: false
+hermes_cabal_whatsapp_database_host: "postgresql.h.nixknight.pk"
+hermes_cabal_whatsapp_database_address: "192.168.0.172"
+hermes_cabal_whatsapp_database_port: 5432
+hermes_cabal_whatsapp_database_name: "whatsapp_bridge"
+hermes_cabal_whatsapp_database_user: "whatsapp_bridge"
+# The variable named here may come from encrypted inventory. A nonempty
+# inventory value takes precedence over a controller environment fallback.
+hermes_cabal_whatsapp_database_password_env: "WHATSAPP_BRIDGE_DB_PASSWORD"
+hermes_cabal_whatsapp_database_sslmode: "verify-full"
+hermes_cabal_whatsapp_database_ca_source: ""
+hermes_cabal_whatsapp_database_ca_checksum: ""
+hermes_cabal_whatsapp_database_ca_dir: "/opt/CABAL/config"
+hermes_cabal_whatsapp_database_ca_path: "/opt/CABAL/config/postgresql-ca.crt"
+hermes_cabal_whatsapp_database_ca_mode: "0644"
+hermes_cabal_whatsapp_database_client_packages:
+  - openssl
+  - postgresql-client

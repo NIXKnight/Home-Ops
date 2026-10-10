@@ -1,0 +1,61 @@
+---
+- name: Verify the staged bridge artifacts exist
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ hermes_cabal_whatsapp_binary }}"
+    - "{{ hermes_cabal_whatsapp_manifest }}"
+  register: hermes_cabal_whatsapp_bridge_artifacts
+  when: hermes_cabal_whatsapp_bridge_build | bool
+
+- name: Require the staged bridge artifacts
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_bridge_artifacts.results | map(attribute='stat.exists') | min
+    fail_msg: The versioned bridge binary or its target-side SHA-256 record is missing.
+  when: hermes_cabal_whatsapp_bridge_build | bool
+
+- name: Recheck the source tree after builds
+  ansible.builtin.command:
+    argv:
+      - git
+      - -C
+      - "{{ hermes_cabal_whatsapp_source_dir }}"
+      - status
+      - --porcelain=v1
+      - --untracked-files=all
+  register: hermes_cabal_whatsapp_final_source_status
+  changed_when: false
+  when: >-
+    hermes_cabal_whatsapp_bridge_build | bool
+    or hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Require the source tree to remain clean after builds
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_final_source_status.stdout | trim == ""
+    fail_msg: The reproducible build or locked MCP sync introduced source-tree drift.
+  when: >-
+    hermes_cabal_whatsapp_bridge_build | bool
+    or hermes_cabal_whatsapp_mcp_sync | bool
+
+- name: Read loopback bridge readiness
+  ansible.builtin.uri:
+    url: "{{ hermes_cabal_whatsapp_bridge_url }}/api/status"
+    method: GET
+    return_content: true
+    status_code: 200
+    timeout: 10
+  register: hermes_cabal_whatsapp_readiness
+  no_log: true
+  when: hermes_cabal_whatsapp_bridge_enabled | bool
+
+- name: Require semantic CONNECTED bridge readiness
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_readiness.json.state == "CONNECTED"
+      - hermes_cabal_whatsapp_readiness.json.is_connected is sameas true
+    fail_msg: >-
+      WhatsApp bridge readiness failed: /api/status must report state CONNECTED
+      and is_connected true. HTTP status alone is not accepted.
+  when: hermes_cabal_whatsapp_bridge_enabled | bool

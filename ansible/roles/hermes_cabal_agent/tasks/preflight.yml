@@ -1,0 +1,106 @@
+---
+- name: Require the approved exact Hermes deployment contract
+  ansible.builtin.assert:
+    that:
+      - ansible_system == "Linux"
+      - ansible_architecture in ["x86_64", "amd64"]
+      - hermes_cabal_agent_commit == "f97608f178d1ffeca59860195ab7da295f7c8e5f"
+      - hermes_cabal_agent_package_version == "0.21.5"
+      - hermes_cabal_agent_release == "v2026.9.24"
+      - hermes_cabal_agent_application_root == "/opt/CABAL"
+      - hermes_cabal_agent_root == "/opt/CABAL/hermes"
+      - hermes_cabal_agent_source_dir == "/opt/CABAL/hermes/src/" ~ hermes_cabal_agent_commit
+      - >-
+        hermes_cabal_agent_venv ==
+        "/opt/CABAL/hermes/venvs/" ~ hermes_cabal_agent_package_version ~
+        "-" ~ hermes_cabal_agent_commit
+      - hermes_cabal_agent_home == "/opt/CABAL/hermes/home"
+      - hermes_cabal_agent_config_dir == "/opt/CABAL/config"
+      - hermes_cabal_agent_env_file == "/opt/CABAL/config/hermes.env"
+      - hermes_cabal_agent_hindsight_mcp_enabled | bool
+      - hermes_cabal_agent_hindsight_mcp_url == "https://hindsight-api.h.nixknight.pk/mcp/cabal-private/"
+      - hermes_cabal_agent_hindsight_tools == ["retain", "recall", "reflect"]
+      - hermes_cabal_agent_whatsapp_tools == ["get_messages", "get_contact"]
+    fail_msg: The exact Hermes, Hindsight, or positive WhatsApp allowlist contract was changed.
+
+- name: Require a sanitized prepared profile base
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_agent_profile_base is mapping
+      - "'plugins' not in hermes_cabal_agent_profile_base"
+      - "'memory' not in hermes_cabal_agent_profile_base"
+      - "'mcp_servers' not in hermes_cabal_agent_profile_base"
+      - hermes_cabal_agent_profile_base.providers.inference.api == "https://bifrost.h.nixknight.pk/v1"
+      - hermes_cabal_agent_profile_base.providers.inference.key_env == hermes_cabal_agent_bifrost_key_env
+      - hermes_cabal_agent_profile_base.model.default == "llamacpp/qwen3.8-27b"
+      - hermes_cabal_agent_profile_base.fallback_providers | length == 0
+      - >-
+        hermes_cabal_agent_required_disabled_toolsets
+        | difference(hermes_cabal_agent_profile_base.agent.disabled_toolsets)
+        | length == 0
+    fail_msg: >-
+      The private profile base must contain the approved Bifrost route/model and
+      safeguards, with no plugin, native-memory-provider, or MCP subtree.
+
+- name: Check the existing Hermes service account
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ hermes_cabal_agent_user }}"
+
+- name: Require explicit Hermes activation gates
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_agent_activation_accepted | bool
+      - hermes_cabal_agent_runtime_install | bool
+      - hermes_cabal_agent_home_manage | bool
+      - hermes_cabal_agent_secrets_install | bool
+    fail_msg: >-
+      Hermes service activation is blocked until runtime, sanitized home, and
+      controller-supplied credentials are staged and activation is accepted.
+  when: hermes_cabal_agent_service_enabled | bool
+
+- name: Require WhatsApp pairing and readiness before exposing its MCP child
+  ansible.builtin.assert:
+    that:
+      - hermes_cabal_whatsapp_bridge_enabled | default(false) | bool
+      - hermes_cabal_whatsapp_pairing_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_readiness_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_database_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_database_backup_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_database_tls_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_database_pg18_migration_accepted | default(false) | bool
+      - hermes_cabal_whatsapp_mcp_sync | default(false) | bool
+    fail_msg: >-
+      WhatsApp MCP remains disabled until external CNPG database, backup, TLS,
+      PostgreSQL 18 migration, manual pairing, semantic CONNECTED readiness,
+      bridge activation, and locked MCP sync gates are complete.
+  when: hermes_cabal_agent_whatsapp_mcp_enabled | bool
+
+- name: Create versioned Hermes directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: "{{ item.owner }}"
+    group: "{{ item.group }}"
+    mode: "{{ item.mode }}"
+  loop:
+    - path: "{{ hermes_cabal_agent_application_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ hermes_cabal_agent_root }}"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ hermes_cabal_agent_root }}/src"
+      owner: root
+      group: root
+      mode: "0755"
+    - path: "{{ hermes_cabal_agent_root }}/venvs"
+      owner: "{{ hermes_cabal_agent_user }}"
+      group: "{{ hermes_cabal_agent_group }}"
+      mode: "0755"
+    - path: "{{ hermes_cabal_agent_config_dir }}"
+      owner: root
+      group: root
+      mode: "0755"

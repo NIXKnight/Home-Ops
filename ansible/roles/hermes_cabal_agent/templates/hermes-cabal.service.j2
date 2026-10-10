@@ -1,0 +1,46 @@
+[Unit]
+Description=Hermes CABAL gateway
+After=network-online.target user@{{ ansible_facts.getent_passwd[hermes_cabal_agent_user][1] }}.service
+Wants=network-online.target user@{{ ansible_facts.getent_passwd[hermes_cabal_agent_user][1] }}.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User={{ hermes_cabal_agent_user }}
+Group={{ hermes_cabal_agent_group }}
+# Root reads this mode-0600 file before systemd applies User/Group.
+EnvironmentFile={{ hermes_cabal_agent_env_file }}
+Environment="HOME={{ hermes_cabal_agent_user_home }}"
+Environment="USER={{ hermes_cabal_agent_user }}"
+Environment="LOGNAME={{ hermes_cabal_agent_user }}"
+Environment="PATH={{ hermes_cabal_agent_venv }}/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VIRTUAL_ENV={{ hermes_cabal_agent_venv }}"
+Environment="HERMES_HOME={{ hermes_cabal_agent_home }}"
+Environment="HERMES_SUPERVISED_CHILD=1"
+ExecStart={{ hermes_cabal_agent_venv }}/bin/python -m hermes_cli.main gateway run
+WorkingDirectory={{ hermes_cabal_agent_home }}
+Restart=always
+RestartSec=5
+RestartForceExitStatus=75
+SuccessExitStatus=75
+RestartPreventExitStatus=78
+KillMode=mixed
+KillSignal=SIGTERM
+ExecReload=/bin/kill -USR1 $MAINPID
+ExecStop=-{{ hermes_cabal_agent_venv }}/bin/python -m gateway.systemd_stop_mark
+ExecStopPost=-{{ hermes_cabal_agent_venv }}/bin/python -m gateway.cgroup_cleanup
+TimeoutStopSec={{ hermes_cabal_agent_timeout_stop_seconds }}
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

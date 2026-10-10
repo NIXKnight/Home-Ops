@@ -1,0 +1,15 @@
+---
+# Staged, gate-driven Hermes CABAL deployment for cawl-inferior.
+# Pairing and acceptance are deliberate Operator actions and never Ansible tasks.
+- name: Deploy the isolated Hermes CABAL runtime
+  hosts: cawl-inferior
+  gather_facts: true
+  become: true
+  any_errors_fatal: true
+  roles:
+    - role: hermes_cabal_whatsapp
+      tags:
+        - hermes
+    - role: hermes_cabal_agent
+      tags:
+        - hermes
