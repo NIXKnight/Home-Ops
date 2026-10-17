@@ -33,7 +33,6 @@ MANIFEST_FILES = (
     "service-ui.yaml",
     "ingress.yaml",
     "externalsecret-auth.yaml",
-    "externalsecret-inference.yaml",
     "externalsecret-postgres.yaml",
     "networkpolicies.yaml",
 )
@@ -43,7 +42,7 @@ BASE_POLICIES = {
     "allow-ui-to-api",
     "allow-api-from-ui",
     "allow-api-to-db",
-    "allow-api-to-bifrost",
+    "allow-api-to-llamacpp",
     "allow-ui-from-traefik",
     "allow-api-from-traefik",
 }
@@ -59,10 +58,18 @@ EXPECTED_IMAGE_PROVENANCE = {
     "imageProvenanceApproved": True,
 }
 EXPECTED_INFERENCE = {
-    "expectedInferenceProvider": "openai",
-    "expectedInferenceModel": "llamacpp/qwen3.8-27b",
-    "expectedInferenceBaseURL": "http://bifrost.bifrost.svc.cluster.local:8080/v1",
+    "HINDSIGHT_API_LLM_PROVIDER": "openai",
+    "HINDSIGHT_API_LLM_MODEL": "qwen3.8-27b",
+    "HINDSIGHT_API_LLM_BASE_URL": "https://llamacpp.h.nixknight.pk/v1",
+    "HINDSIGHT_API_LLM_API_KEY": "not-required",
 }
+EXPECTED_INFERENCE_NETWORK = {
+    "expectedInferenceProvider": EXPECTED_INFERENCE["HINDSIGHT_API_LLM_PROVIDER"],
+    "expectedInferenceModel": EXPECTED_INFERENCE["HINDSIGHT_API_LLM_MODEL"],
+    "expectedInferenceBaseURL": EXPECTED_INFERENCE["HINDSIGHT_API_LLM_BASE_URL"],
+    "expectedInferenceAPIKey": EXPECTED_INFERENCE["HINDSIGHT_API_LLM_API_KEY"],
+}
+INFERENCE_FQDN = "llamacpp.h.nixknight.pk"
 FORBIDDEN_HINDSIGHT_KINDS = {
     "Cluster",
     "Database",
@@ -90,6 +97,7 @@ API_LITERAL_KEYS = {
     "HINDSIGHT_API_DB_POOL_MAX_SIZE",
     "PGSSLMODE",
     "HINDSIGHT_API_TENANT_EXTENSION",
+    *EXPECTED_INFERENCE,
     "HINDSIGHT_API_EMBEDDINGS_PROVIDER",
     "HINDSIGHT_API_EMBEDDINGS_LOCAL_MODEL",
     "HINDSIGHT_API_RERANKER_PROVIDER",
@@ -113,10 +121,6 @@ UI_LITERAL_KEYS = {
 API_SECRET_KEYS = {
     "HINDSIGHT_API_DATABASE_URL",
     "HINDSIGHT_API_TENANT_API_KEY",
-    "HINDSIGHT_API_LLM_PROVIDER",
-    "HINDSIGHT_API_LLM_MODEL",
-    "HINDSIGHT_API_LLM_BASE_URL",
-    "HINDSIGHT_API_LLM_API_KEY",
 }
 UI_SECRET_KEYS = {
     "HINDSIGHT_CP_DATAPLANE_API_KEY",
@@ -179,8 +183,7 @@ CONTRACT_SHAPE = {
         "dnsPodLabels": ("map", str),
         "databaseNamespace": str,
         "databasePodLabels": ("map", str),
-        "inferenceNamespace": str,
-        "inferencePodLabels": ("map", str),
+        "inferenceFQDN": str,
         "ingressNamespace": str,
         "ingressPodLabels": ("map", str),
         "dnsPort": int,
@@ -191,6 +194,7 @@ CONTRACT_SHAPE = {
         "expectedInferenceProvider": str,
         "expectedInferenceModel": str,
         "expectedInferenceBaseURL": str,
+        "expectedInferenceAPIKey": str,
     },
     "exposure": {
         "ingressClassName": str,
@@ -323,12 +327,12 @@ def _valid_identifier(value: str) -> bool:
 def validate_contract(contract: Document) -> None:
     """Validate references and safe settings without reading secret values."""
     contract_shape(contract, CONTRACT_SHAPE)
-    require(contract["contractVersion"] == 6, "CONTRACT_VERSION_UNSUPPORTED")
+    require(contract["contractVersion"] == 7, "CONTRACT_VERSION_UNSUPPORTED")
     require(
         contract["inventory"]
         == {
             "manifestFiles": list(MANIFEST_FILES),
-            "resourceCount": 20,
+            "resourceCount": 19,
             "ciliumNetworkPolicyCount": 8,
         },
         "CONTRACT_INVENTORY_INVALID",
@@ -481,14 +485,8 @@ def validate_contract(contract: Document) -> None:
     ui_refs = ui["secretEnv"]
     dsn_name = api_refs["HINDSIGHT_API_DATABASE_URL"]["name"]
     auth_name = api_refs["HINDSIGHT_API_TENANT_API_KEY"]["name"]
-    inference_names = {
-        api_refs[key]["name"]
-        for key in API_SECRET_KEYS
-        if key.startswith("HINDSIGHT_API_LLM_")
-    }
     require(
-        len(inference_names) == 1
-        and dsn_name != owner_secret
+        dsn_name != owner_secret
         and secrets[dsn_name]["namespace"] == "hindsight"
         and secrets[owner_secret]["namespace"] != secrets[dsn_name]["namespace"],
         "CONTRACT_DATABASE_REFERENCES_NOT_SEPARATE",
@@ -532,6 +530,7 @@ def validate_contract(contract: Document) -> None:
         "HINDSIGHT_API_LLM_DEBUG_DUMP_4XX": "false",
         "PYTHONDONTWRITEBYTECODE": "1",
     }
+    safe_literals.update(EXPECTED_INFERENCE)
     safe_literals.update(
         {
             "HINDSIGHT_API_" + name + suffix: value
@@ -566,7 +565,6 @@ def validate_contract(contract: Document) -> None:
         "CONTRACT_UI_RUNTIME_INVALID",
     )
 
-    inference_name = next(iter(inference_names))
     require(
         contract["rotation"]
         == {
@@ -574,7 +572,6 @@ def validate_contract(contract: Document) -> None:
             "consumers": {
                 dsn_name: ["hindsight-api"],
                 auth_name: ["hindsight-api", "hindsight-ui"],
-                inference_name: ["hindsight-api"],
             },
             "requireControlledRestart": True,
             "requirePostRestartReconnectTest": True,
@@ -584,9 +581,9 @@ def validate_contract(contract: Document) -> None:
     require(
         contract["activationGates"]["namespaceAnnotations"]
         == {
-            "hindsight/inference-egress-approved": "true",
+            "hindsight/inference-egress-approved": "false",
             "hindsight/shared-database-approved": "true",
-            "hindsight/operator-preflight-approved": "true",
+            "hindsight/operator-preflight-approved": "false",
         },
         "CONTRACT_ACTIVATION_GATES_INVALID",
     )
@@ -599,15 +596,10 @@ def validate_contract(contract: Document) -> None:
         and network["dnsNamespace"]
         and network["dnsPodLabels"]
         and network["dnsPort"] == 53
-        and network["inferenceNamespace"] == "bifrost"
-        and network["inferencePodLabels"]
-        == {
-            "app.kubernetes.io/component": "server",
-            "app.kubernetes.io/instance": "bifrost",
-            "app.kubernetes.io/name": "bifrost",
-        }
-        and network["inferencePort"] == 8080
-        and {key: network[key] for key in EXPECTED_INFERENCE} == EXPECTED_INFERENCE
+        and network["inferenceFQDN"] == INFERENCE_FQDN
+        and network["inferencePort"] == 443
+        and {key: network[key] for key in EXPECTED_INFERENCE_NETWORK}
+        == EXPECTED_INFERENCE_NETWORK
         and network["ingressNamespace"] == "traefik"
         and network["ingressPodLabels"]
         == {
@@ -1171,10 +1163,15 @@ def _cilium_ports(rule: Document) -> list[tuple[str, int]]:
     result: list[tuple[str, int]] = []
     for block in blocks:
         require(
-            type(block) is dict and set(block) == {"ports"},
+            type(block) is dict and set(block) <= {"ports", "rules"},
             "NETWORK_PORT_SCOPE",
         )
-        ports = block["ports"]
+        if "rules" in block:
+            require(
+                block["rules"] == {"dns": [{"matchPattern": "*"}]},
+                "NETWORK_DNS_L7_RULE_INVALID",
+            )
+        ports = block.get("ports")
         require(type(ports) is list and bool(ports), "NETWORK_PORT_SCOPE")
         for port in ports:
             require(
@@ -1226,7 +1223,10 @@ def narrow_network_policies(
                         "NETWORK_BLANKET_ALLOW",
                     )
                     continue
-                peer_keys = {endpoint_key, cidr_key} & set(rule)
+                allowed_peer_keys = {endpoint_key, cidr_key}
+                if direction == "egress":
+                    allowed_peer_keys.add("toFQDNs")
+                peer_keys = allowed_peer_keys & set(rule)
                 require(
                     len(peer_keys) == 1
                     and set(rule) == {next(iter(peer_keys)), "toPorts"},
@@ -1239,6 +1239,16 @@ def narrow_network_policies(
                 if peer_key == endpoint_key:
                     for peer in peers:
                         _endpoint_peer(peer)
+                elif peer_key == "toFQDNs":
+                    require(
+                        all(
+                            type(peer) is dict
+                            and set(peer) == {"matchName"}
+                            and peer["matchName"] == INFERENCE_FQDN
+                            for peer in peers
+                        ),
+                        "NETWORK_BROAD_FQDN",
+                    )
                 else:
                     networks = [_cidr_network(cidr) for cidr in peers]
                 for protocol, port in _cilium_ports(rule):
@@ -1332,10 +1342,18 @@ def _validate_networks(resources: ResourceIndex, contract: Document) -> None:
                             contract["network"]["dnsNamespace"],
                         )
                     ],
-                    "toPorts": ports(
-                        ("UDP", contract["network"]["dnsPort"]),
-                        ("TCP", contract["network"]["dnsPort"]),
-                    ),
+                    "toPorts": [
+                        {
+                            "ports": [
+                                {
+                                    "protocol": protocol,
+                                    "port": str(contract["network"]["dnsPort"]),
+                                }
+                                for protocol in ("UDP", "TCP")
+                            ],
+                            "rules": {"dns": [{"matchPattern": "*"}]},
+                        }
+                    ],
                 }
             ],
         },
@@ -1395,18 +1413,14 @@ def _validate_networks(resources: ResourceIndex, contract: Document) -> None:
             ],
         ),
         (
-            "allow-api-to-bifrost",
+            "allow-api-to-llamacpp",
             api_labels,
             "egress",
             [
-                rule(
-                    "toEndpoints",
-                    peer(
-                        contract["network"]["inferencePodLabels"],
-                        contract["network"]["inferenceNamespace"],
-                    ),
-                    contract["network"]["inferencePort"],
-                )
+                {
+                    "toFQDNs": [{"matchName": contract["network"]["inferenceFQDN"]}],
+                    "toPorts": ports(("TCP", contract["network"]["inferencePort"])),
+                }
             ],
         ),
         (
@@ -1450,10 +1464,10 @@ def _validate_networks(resources: ResourceIndex, contract: Document) -> None:
             "BASE_NETWORK_FLOW_CONTRACT",
         )
     require(
-        annotations(resources["CiliumNetworkPolicy", "allow-api-to-bifrost"])
+        annotations(resources["CiliumNetworkPolicy", "allow-api-to-llamacpp"])
         == {
             "hindsight/egress-purpose": "inference",
-            "hindsight/source-evidence": "operator-approved-live-bifrost-service",
+            "hindsight/source-evidence": "desired-state-pending-live-acceptance",
         },
         "INFERENCE_POLICY_EVIDENCE",
     )

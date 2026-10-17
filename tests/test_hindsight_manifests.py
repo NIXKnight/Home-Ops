@@ -144,11 +144,11 @@ class HindsightManifests(unittest.TestCase):
         }
         v.narrow_network_policies(policies, labels)
 
-    # Baseline behavior and the accepted activation result.
+    # Baseline behavior and the deliberately reset activation result.
 
-    def test_scaffolding_has_twenty_resources(self) -> None:
+    def test_scaffolding_has_nineteen_resources(self) -> None:
         resources = v.validate_scaffolding(self.catalog)
-        self.assertEqual(len(resources), 20)
+        self.assertEqual(len(resources), 19)
         policies = [
             document
             for (kind, _), document in resources.items()
@@ -186,23 +186,33 @@ class HindsightManifests(unittest.TestCase):
                     "ports": [
                         {"protocol": "UDP", "port": "53"},
                         {"protocol": "TCP", "port": "53"},
-                    ]
+                    ],
+                    "rules": {"dns": [{"matchPattern": "*"}]},
                 }
             ],
         )
 
-    def test_activation_has_no_blockers(self) -> None:
-        self.assertEqual(v.activation_failures(self.catalog), [])
+    def test_activation_has_only_reset_route_and_runtime_blockers(self) -> None:
+        self.assertEqual(
+            v.activation_failures(self.catalog),
+            [
+                "INFERENCE_EGRESS_UNAPPROVED",
+                "OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED",
+            ],
+        )
 
     def test_cli_modes_are_distinct_and_safe(self) -> None:
         output = io.StringIO()
         with contextlib.redirect_stdout(output):
             self.assertEqual(v.main(self.cli_args() + ["--scaffolding"]), 0)
-            self.assertEqual(v.main(self.cli_args()), 0)
+            self.assertEqual(v.main(self.cli_args()), 1)
         text = output.getvalue()
         self.assertIn("NOT deployment-ready", text)
-        self.assertIn("PASS: offline activation prerequisites only", text)
-        self.assertNotIn("BLOCKED:", text)
+        self.assertIn("BLOCKED: INFERENCE_EGRESS_UNAPPROVED", text)
+        self.assertIn(
+            "BLOCKED: OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED",
+            text,
+        )
         self.assertNotIn("remoteKey", text)
 
     def test_validation_does_not_network_or_write(self) -> None:
@@ -218,7 +228,13 @@ class HindsightManifests(unittest.TestCase):
         ):
             loaded = v.load_catalog(PUBLIC, self.internal, self.environment)
             v.validate_scaffolding(loaded)
-            self.assertEqual(v.activation_failures(loaded), [])
+            self.assertEqual(
+                v.activation_failures(loaded),
+                [
+                    "INFERENCE_EGRESS_UNAPPROVED",
+                    "OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED",
+                ],
+            )
 
     def test_missing_contract_fails_before_other_inputs(self) -> None:
         output = io.StringIO()
@@ -350,7 +366,7 @@ class HindsightManifests(unittest.TestCase):
         )
 
     def test_final_images_provenance_and_home_are_exact(self) -> None:
-        self.assertEqual(self.catalog["contract"]["contractVersion"], 6)
+        self.assertEqual(self.catalog["contract"]["contractVersion"], 7)
         self.assertEqual(
             self.catalog["contract"]["imageProvenance"],
             v.EXPECTED_IMAGE_PROVENANCE,
@@ -423,26 +439,22 @@ class HindsightManifests(unittest.TestCase):
     def test_inference_and_traefik_flows_are_exact(self) -> None:
         network = self.catalog["contract"]["network"]
         self.assertEqual(
-            {key: network[key] for key in v.EXPECTED_INFERENCE},
-            v.EXPECTED_INFERENCE,
+            {key: network[key] for key in v.EXPECTED_INFERENCE_NETWORK},
+            v.EXPECTED_INFERENCE_NETWORK,
         )
-        inference = self.resource("CiliumNetworkPolicy", "allow-api-to-bifrost")[
+        inference = self.resource("CiliumNetworkPolicy", "allow-api-to-llamacpp")[
             "spec"
         ]["egress"][0]
         self.assertEqual(
-            inference["toEndpoints"][0]["matchLabels"],
-            {
-                "k8s:io.kubernetes.pod.namespace": network["inferenceNamespace"],
-                **{
-                    f"k8s:{key}": value
-                    for key, value in network["inferencePodLabels"].items()
-                },
-            },
+            inference["toFQDNs"],
+            [{"matchName": "llamacpp.h.nixknight.pk"}],
         )
         self.assertEqual(
             inference["toPorts"],
-            [{"ports": [{"protocol": "TCP", "port": "8080"}]}],
+            [{"ports": [{"protocol": "TCP", "port": "443"}]}],
         )
+        self.assertNotIn("toCIDR", inference)
+        self.assertNotIn("toEntities", inference)
         expected_peer = {
             "k8s:io.kubernetes.pod.namespace": network["ingressNamespace"],
             **{
@@ -463,12 +475,41 @@ class HindsightManifests(unittest.TestCase):
                     [{"ports": [{"protocol": "TCP", "port": port}]}],
                 )
 
-    def test_inference_provider_model_and_destination_drift_is_rejected(self) -> None:
+    def test_inference_provider_model_destination_and_sentinel_are_exact(self) -> None:
         for field in v.EXPECTED_INFERENCE:
+            with self.subTest(field=field):
+                self.catalog = copy.deepcopy(self.original)
+                self.catalog["contract"]["workloads"]["api"]["literalEnv"][
+                    field
+                ] = "synthetic"
+                with self.assertRaisesRegex(
+                    v.Invalid, "^CONTRACT_UNSAFE_RUNTIME_SETTING$"
+                ):
+                    v.validate_contract(self.catalog["contract"])
+
+    def test_inference_network_contract_drift_is_rejected(self) -> None:
+        for field in v.EXPECTED_INFERENCE_NETWORK:
             with self.subTest(field=field):
                 self.catalog = copy.deepcopy(self.original)
                 self.catalog["contract"]["network"][field] = "synthetic"
                 with self.assertRaisesRegex(v.Invalid, "^CONTRACT_NETWORK_INVALID$"):
+                    v.validate_contract(self.catalog["contract"])
+
+    def test_unsafe_inference_literal_variants_are_rejected(self) -> None:
+        cases = {
+            "HINDSIGHT_API_LLM_PROVIDER": "llamacpp",
+            "HINDSIGHT_API_LLM_MODEL": "llamacpp/qwen3.8-27b",
+            "HINDSIGHT_API_LLM_BASE_URL": "https://llamacpp.h.nixknight.pk",
+            "HINDSIGHT_API_LLM_API_KEY": "",
+        }
+        for name, value in cases.items():
+            with self.subTest(name=name):
+                self.catalog = copy.deepcopy(self.original)
+                self.catalog["contract"]["workloads"]["api"]["literalEnv"][name] = value
+                with self.assertRaisesRegex(
+                    v.Invalid,
+                    "^(CONTRACT_EMPTY_RUNTIME_SETTING|CONTRACT_UNSAFE_RUNTIME_SETTING)$",
+                ):
                     v.validate_contract(self.catalog["contract"])
 
     def test_lan_ingresses_are_exact_and_use_default_tls_store(self) -> None:
@@ -533,10 +574,49 @@ class HindsightManifests(unittest.TestCase):
         item = next(
             entry
             for entry in self.container("api")["env"]
-            if entry["name"] == "HINDSIGHT_API_LLM_MODEL"
+            if entry["name"] == "HINDSIGHT_API_DATABASE_URL"
         )
         item["valueFrom"]["secretKeyRef"]["optional"] = True
         self.rejected("INDIVIDUAL_REQUIRED_SECRET_REF")
+
+    def test_direct_inference_has_no_credential_path(self) -> None:
+        env = {item["name"]: item for item in self.container("api")["env"]}
+        for name, value in v.EXPECTED_INFERENCE.items():
+            with self.subTest(name=name):
+                self.assertEqual(env[name], {"name": name, "value": value})
+                self.assertNotIn("valueFrom", env[name])
+        workload_secrets = [
+            document
+            for document in self.catalog["docs"]
+            if document["kind"] == "ExternalSecret"
+        ]
+        self.assertEqual(len(workload_secrets), 2)
+        referenced_names = {
+            item["valueFrom"]["secretKeyRef"]["name"]
+            for role in ("api", "ui")
+            for item in self.container(role)["env"]
+            if "valueFrom" in item
+        }
+        self.assertEqual(
+            {item["metadata"]["name"] for item in workload_secrets},
+            referenced_names,
+        )
+
+    def test_inference_literal_cannot_be_replaced_by_a_secret_reference(self) -> None:
+        item = next(
+            entry
+            for entry in self.container("api")["env"]
+            if entry["name"] == "HINDSIGHT_API_LLM_API_KEY"
+        )
+        item.pop("value")
+        item["valueFrom"] = {
+            "secretKeyRef": {
+                "name": "synthetic-credential",
+                "key": "api-key",
+                "optional": False,
+            }
+        }
+        self.rejected("SECRET_REF_INVENTORY")
 
     def test_external_reference_drift_is_rejected_without_values(self) -> None:
         contract = self.catalog["contract"]
@@ -559,6 +639,55 @@ class HindsightManifests(unittest.TestCase):
         )
 
     # Effective egress checks.
+
+    def test_dns_l7_observation_rule_is_required(self) -> None:
+        dns = self.resource("CiliumNetworkPolicy", "allow-dns")["spec"]["egress"][0][
+            "toPorts"
+        ][0]
+        del dns["rules"]
+        self.rejected("DNS_TCP_UDP_53")
+
+    def test_broad_or_stale_inference_egress_is_rejected(self) -> None:
+        cases = (
+            (
+                {"toFQDNs": [{"matchPattern": "*.nixknight.pk"}]},
+                "NETWORK_BROAD_FQDN",
+            ),
+            ({"toCIDR": ["0.0.0.0/0"]}, "NETWORK_UNRESTRICTED_CIDR"),
+            ({"toCIDR": ["192.168.0.0/16"]}, "BASE_NETWORK_FLOW_CONTRACT"),
+            (
+                {
+                    "toEndpoints": [
+                        {
+                            "matchLabels": {
+                                "k8s:io.kubernetes.pod.namespace": "bifrost",
+                                "k8s:app.kubernetes.io/name": "bifrost",
+                            }
+                        }
+                    ]
+                },
+                "BASE_NETWORK_FLOW_CONTRACT",
+            ),
+        )
+        for peer, code in cases:
+            with self.subTest(code=code):
+                self.catalog = copy.deepcopy(self.original)
+                rule = self.resource("CiliumNetworkPolicy", "allow-api-to-llamacpp")[
+                    "spec"
+                ]["egress"][0]
+                rule.pop("toFQDNs")
+                rule.update(peer)
+                self.rejected(code)
+
+    def test_inference_egress_rejects_http_and_stale_port(self) -> None:
+        for port in ("80", "8080"):
+            with self.subTest(port=port):
+                self.catalog = copy.deepcopy(self.original)
+                rule = self.resource("CiliumNetworkPolicy", "allow-api-to-llamacpp")[
+                    "spec"
+                ]["egress"][0]
+                rule["toPorts"][0]["ports"][0]["port"] = port
+                self.rejected("BASE_NETWORK_FLOW_CONTRACT")
 
     def test_collectively_unrestricted_egress_is_rejected(self) -> None:
         self.append_egress_policy("synthetic-a", "0.0.0.0/1")

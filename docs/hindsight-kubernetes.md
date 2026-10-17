@@ -1,15 +1,16 @@
-# Hindsight Kubernetes activation configuration
+# Hindsight Kubernetes desired state
 
-Hindsight is registered in the private environment root and is currently live
-`Synced`/`Healthy`. Its child Application intentionally has **no automated sync**;
-future reconciliations remain separate, explicitly authorized manual Operator actions.
+Hindsight 0.10.2 is registered in the private environment root. Its child Application
+intentionally has **no automated sync**. This repository describes desired state only;
+the direct inference route has not been live-accepted and must not be presented as
+ready until a separately authorized manual Argo CD sync and runtime checks succeed.
 
 ## Public structure and private configuration
 
 The public repository owns the three-source Argo CD Application shape and the offline
-validator/tests. The private environment overlay pins the null-renderer chart, supplies
-the environment manifests, and is now a root member. The root's common patch adds the
-cascade finalizer; the Hindsight Application does not define a finalizer directly.
+validator/tests. The private environment overlay pins the null-renderer chart and
+supplies the environment manifests. The root common patch adds the cascade finalizer;
+the Hindsight Application does not define one directly.
 
 The AppProject permission remains narrow: the Application targets only the in-cluster
 `hindsight` namespace, repositories are explicitly allowlisted, cluster-scoped Cilium
@@ -19,130 +20,114 @@ Cilium API group.
 ## Approved image compatibility exception
 
 The Operator approved upstream Hindsight 0.10.2 immutable images even though the image
-source revision differs from the revision against which these manifests were reviewed:
-
-- image source revision: `5fc4ce20917b916240cef27c212c387a177f115b`;
-- manifest compatibility-review revision: `f7dd3f4fd7420f7beec60c32c965e5e5cf7be066`;
-- version: `0.10.2`;
-- source mismatch and image provenance: explicitly approved.
-
-The API and UI Deployments record these facts as separate annotations rather than a
-misleading single source revision. Both images are digest-pinned. The reviewed images
-run as UID 1000, contain complete local embedding/reranker model caches, and support the
-authored probes and environment variables. Offline/local-model controls remain enabled.
-`readOnlyRootFilesystem: false` is deliberate. The API uses `HOME=/home/hindsight`, the
-UI uses `HOME=/home/node`, and API model initialization is bounded to 540 seconds inside
-the existing 600-second startup budget.
+source revision differs from the manifest compatibility-review revision. Both images
+remain digest-pinned. The reviewed images run as UID 1000, contain the local
+embedding/reranker caches, and support the authored probes and environment variables.
+`readOnlyRootFilesystem: false` remains deliberate. API model initialization is bounded
+to 540 seconds inside the 600-second startup budget.
 
 ## Shared database ownership
 
-The existing PostgreSQL Application owns the Hindsight database resources in the
-`postgresql` namespace:
+The existing PostgreSQL Application owns the Hindsight database, least-privilege owner
+role, and owner credential ExternalSecret in namespace `postgresql`. Database and role
+reclaim policies remain `retain`, with Argo prune/delete guards. The Hindsight
+Application owns no PostgreSQL data-plane resources.
 
-- logical database and least-privilege owner role named `hindsight`;
-- owner credential ExternalSecret used by CloudNativePG;
-- `vector`, `pg_trgm`, and `btree_gin` in schema `public`.
+The API connects to `postgresql-rw.postgresql.svc.cluster.local:5432`, database and role
+`hindsight`, schema `public`, with pool minimum/maximum 1/10 and role connection limit
+20. The explicit Operator decision remains `PGSSLMODE=disable`. The DSN and application
+authentication values remain individual, required SecretKeyRefs and must never be
+printed or inspected.
 
-Database and role reclaim policies remain `retain`, with Argo prune/delete guards. The
-Hindsight Application owns no PostgreSQL data-plane resources.
+## Direct llama.cpp inference contract
 
-The API connects to `postgresql-rw.postgresql.svc.cluster.local:5432`, database
-`hindsight`, role `hindsight`, schema `public`. Pool minimum/maximum are 1/10 and the
-role connection limit is 20. The explicit Operator decision remains
-`PGSSLMODE=disable`; do not add PostgreSQL TLS resources or projections.
+Hindsight bypasses Bifrost and uses the LAN llama.cpp OpenAI-compatible endpoint
+directly. The four exact, intentionally public literals are:
 
-The DSN and credentials remain nonoptional, individual SecretKeyRefs. Never place,
-render, inspect, or print their values. The shared-database approval is true only after
-separately authorized live acceptance verified readiness.
+- `HINDSIGHT_API_LLM_PROVIDER=openai`
+- `HINDSIGHT_API_LLM_MODEL=qwen3.8-27b`
+- `HINDSIGHT_API_LLM_BASE_URL=https://llamacpp.h.nixknight.pk/v1`
+- `HINDSIGHT_API_LLM_API_KEY=not-required`
 
-## Inference contract
+The `/v1` suffix is mandatory. Provider `llamacpp` is not valid for this route in
+Hindsight 0.10.2 because it selects Hindsight's built-in local implementation rather
+than a remote OpenAI-compatible server. The model is the direct server alias, not the
+former Bifrost-qualified model.
 
-Inference uses the existing in-cluster Bifrost server through its OpenAI-compatible
-`/v1` API. The expected nonsecret destination is:
+Hindsight 0.10.2 requires a nonempty API key when provider `openai` is selected. The
+literal `not-required` is a non-secret compatibility sentinel, not a credential and not
+a Kubernetes Secret. Hindsight may send `Authorization: Bearer not-required`; llama.cpp
+remains intentionally unauthenticated because the LAN server does not enforce that
+header. This does **not** disable Hindsight's own tenant API-key authentication.
 
-`http://bifrost.bifrost.svc.cluster.local:8080/v1`
+The inference ExternalSecret and every inference SecretKeyRef are absent, so the former
+Bifrost credential has no path into requests to llama.cpp. The Hindsight workload now
+owns exactly two ExternalSecrets: application authentication and the database
+connection.
 
-Provider, model, base URL, and API key remain existing individual SecretKeyRefs. No
-secret value is authored or inspected. Their nonsecret expected contract is exact:
-provider `openai`, model `llamacpp/qwen3.8-27b`, and the Bifrost `/v1` destination above.
-The managed API-key value remains the existing Bifrost virtual key named `hindsight`,
-which is restricted to provider `llamacpp`; the credential itself must never be read or
-rendered.
+## Network and LAN boundary
 
-The inference approval is recorded as true from the Operator's explicit decision. The
-only inference egress policy selects the Hindsight API and the live Bifrost server pod
-identity using namespace `bifrost` plus all three labels
-`app.kubernetes.io/component=server`, `app.kubernetes.io/instance=bifrost`, and
-`app.kubernetes.io/name=bifrost`, limited to TCP 8080. There is no world, CIDR, FQDN,
-HuggingFace, or other Internet egress.
+Namespace default-deny remains enabled for ingress and egress. The only inference
+exception selects the Hindsight API and permits:
 
-## LAN UI/API and network policy
+- `toFQDNs.matchName: llamacpp.h.nixknight.pk`
+- TCP 443 only.
 
-The UI and API have separate standard `networking.k8s.io/v1` Ingress resources with
-`ingressClassName: traefik`. The API route is exactly
-`hindsight-api.h.nixknight.pk` and targets the `hindsight-api` ClusterIP Service on
-TCP 8888. Both hosts-only TLS entries omit `secretName`, so Traefik uses the
-environment's default TLSStore wildcard certificate, and external-dns-private discovers
-both hosts from their Ingress rules. Both Services remain `ClusterIP`; no
-`LoadBalancer`, `NodePort`, or external IP is introduced.
+It does not permit `world`, the LAN CIDR, any broad CIDR, wildcard FQDNs, TCP 80, or the
+former Bifrost TCP 8080 path. The existing kube-dns TCP/UDP 53 policy includes only the
+Cilium DNS L7 observation rule required to populate FQDN policy state. Other database,
+UI/API, and Traefik flows remain unchanged.
 
-No middleware annotation is added to the API Ingress. The UI retains its existing access
-key flow, while the API continues to require Hindsight's tenant API key extension; LAN
-exposure does not bypass or replace application authentication. The Traefik ingress
-policies select only the observed Traefik pod labels in namespace `traefik`, permitting
-TCP 3000 to the UI and TCP 8888 to the API. The existing direct UI-to-API flow remains
-narrowly allowed. All other ingress remains default-denied.
+The llama.cpp endpoint is exposed only within the trusted LAN boundary by surrounding
+DNS/routing controls; it has no application-level API key enforcement. This change does
+not alter llama.cpp, nginx, Traefik, external-dns, DNS, or Bifrost configuration.
 
-The Hindsight manifest inventory is exactly 20 resources, including two Ingresses and
-eight namespaced `cilium.io/v2` policies. Those policies provide exactly:
+The Hindsight manifest inventory is exactly 19 resources: namespace, two Deployments,
+two ClusterIP Services, two ServiceAccounts, two workload ExternalSecrets, two
+Ingresses, and eight namespaced Cilium policies.
 
-1. namespace-wide ingress/egress default deny;
-2. DNS to kube-dns on TCP/UDP 53;
-3. UI egress to API on TCP 8888;
-4. matching API ingress from UI on TCP 8888;
-5. API egress to the shared PostgreSQL pods on TCP 5432;
-6. API inference egress to Bifrost on TCP 8080;
-7. UI ingress from Traefik on TCP 3000; and
-8. API ingress from Traefik on TCP 8888.
+## Availability limitation
+
+Direct routing removes Bifrost from the request path but does not create GPU capacity.
+A `502` from the LAN endpoint can still occur when llama.cpp does not own the GPU, is
+stopped, or cannot load/serve the configured model. Repository validation cannot prove
+GPU ownership, endpoint availability, TLS/DNS behavior, or inference success.
+
+## Acceptance state and activation
+
+The shared-database acceptance evidence is preserved. Inference-route approval and
+Operator preflight/runtime acceptance are reset to false because the new path has not
+been exercised live. Scaffolding validation should pass. Normal offline validation is
+expected to report only:
+
+- `INFERENCE_EGRESS_UNAPPROVED`
+- `OPERATOR_PREFLIGHT_AND_RUNTIME_ACCEPTANCE_UNAPPROVED`
+
+After publication, a separately authorized operator must manually sync and verify DNS
+resolution, Cilium FQDN enforcement, TLS connectivity, API/UI health, tenant
+authentication, and a synthetic completion against the exact model. Only a reviewed
+follow-up may record those acceptance gates as true. Do not combine publication with a
+live sync or claim readiness from offline checks.
 
 ## Credential rotation
 
-Secret-backed environment variables are read only when a process starts. No automatic
-reloader is configured. After an approved credential or inference-setting rotation,
-perform a controlled restart of each affected consumer and verify reconnect/auth with
-synthetic, non-sensitive data.
+No automatic reloader is configured. Database/authentication secret changes require a
+controlled restart of affected consumers and synthetic reconnect/authentication checks.
+Inference settings are literals and no longer participate in secret rotation.
 
-## Two-phase publication and manual activation
+## Rollback
 
-1. **Public phase:** publish the public Application/validator/docs changes first, then
-   independently verify the public commit and availability of the remote base.
-2. **Private phase:** only after that verification, publish the private overlay,
-   manifests, contract, and root membership. Independently verify the root render and
-   resulting child Application. Root reconciliation may create the child, but the child
-   must remain OutOfSync/manual until the live gates below are cleared.
-3. Verify shared database resources are ready without reading credential values; then
-   record the shared-database approval in a separately reviewed change.
-4. Complete Operator preflight and runtime acceptance, record that approval separately,
-   and only then manually sync the Hindsight child Application.
-
-Do not combine publication with a live Argo sync. Rollback is a reviewed Git revert
-followed by an explicitly authorized reconciliation; retained database resources are not
-pruned.
-
-## Activation acceptance record
-
-Offline activation validation must exit successfully with no blockers. All activation
-approvals are true after separately authorized live acceptance recorded: Argo Hindsight
-Synced/Healthy; all three ExternalSecrets Ready; both Deployments 1/1; API `/health`
-HTTP 200 healthy; UI `/api/health` HTTP 200 with the dataplane connected; shared
-database owner and extensions present with 25 public tables; and Bifrost completion
-HTTP 200 through the approved virtual key/model path. File validation does not
-independently prove those live facts.
+Rollback is a reviewed Git revert followed by a separately authorized reconciliation.
+A rollback to Bifrost must coherently restore the prior inference ExternalSecret,
+required SecretKeyRefs, Bifrost-qualified model and `/v1` base URL, API-to-Bifrost
+TCP 8080 policy, contract/tests/docs, and then repeat live acceptance. Never reuse or
+copy the former credential into the direct llama.cpp configuration. Retained database
+resources are not pruned by this route change.
 
 ## Validation boundary
 
-Parse all YAML, render local Kustomizations, validate the Cilium v2 and Ingress schemas,
-verify AppProject/root output, run the focused validator/tests, and format-check Python.
-Read-only cluster schema and nonsecret workload-label checks are allowed. Do not mutate a
-cluster or Argo CD, inspect secret values, alter secret stores, commit, push, or sync.
-Preserve unrelated work and redact accidental sensitive material as `<REDACTED>`.
+Validation is offline and secret-safe: parse only approved files, validate local
+Kustomizations and contracts, run focused tests and Python formatting checks, and inspect
+diffs. Do not contact a cluster or endpoint, invoke Kubernetes/Helm/Argo tools, inspect
+secret values or kubeconfigs, mutate secret stores, stage, commit, push, or sync. Redact
+accidental sensitive material as `<REDACTED>`.
