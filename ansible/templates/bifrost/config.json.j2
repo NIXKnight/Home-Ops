@@ -57,7 +57,18 @@
   "client": {
     "drop_excess_requests": {{ BIFROST_DROP_EXCESS_REQUESTS | bool | to_json }},
     "enable_logging": {{ BIFROST_ENABLE_LOGGING | bool | to_json }},
-    "enforce_auth_on_inference": {{ BIFROST_ENFORCE_AUTH_ON_INFERENCE | bool | to_json }}
+    "enforce_auth_on_inference": {{ BIFROST_ENFORCE_AUTH_ON_INFERENCE | bool | to_json }},
+{#
+  Routes exempt from dashboard/admin-API auth. v1.6.10 decodes this as
+  ClientConfig.WhitelistedRoutes and APIMiddleware matches it against the request
+  path exactly, or as a prefix when an entry ends in `*`. /metrics sits behind
+  that middleware, so listing it here is what lets an unauthenticated Prometheus
+  scrape succeed without handing the admin credential to the scraper or a proxy.
+  System routes such as /health and /api/session/is-auth-enabled are always
+  public and never need listing. See the Internal config-bifrost.yml for the
+  disclosure tradeoff.
+#}
+    "whitelisted_routes": {{ BIFROST_WHITELISTED_ROUTES | to_json }}
   },
 {% if BIFROST_AUTH_ENABLED | bool -%}
 {#-

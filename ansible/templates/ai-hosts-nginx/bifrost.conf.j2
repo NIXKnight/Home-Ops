@@ -29,6 +29,11 @@ server {
   listen {{ AI_NGINX_HTTPS_PORT }} ssl;
   server_name {{ AI_NGINX_BIFROST_FQDN }};
 
+  # Bifrost exempts /metrics from admin auth for the metrics vhost only; keep it off the gateway name.
+  location = /metrics {
+    return 404;
+  }
+
   location / {
     proxy_pass http://bifrost;
 

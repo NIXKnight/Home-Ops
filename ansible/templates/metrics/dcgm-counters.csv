@@ -1,4 +1,4 @@
-# dcgm-exporter counter list for cawl-inferior's RTX 3090.
+# dcgm-exporter counter list for cawl-inferior's two RTX 3090s (GA102).
 #
 # ANSIBLE-MANAGED. Copied verbatim (ansible.builtin.copy, no templating) by
 # playbooks/ai-hosts.yml under the `metrics` tag, from
@@ -16,8 +16,8 @@
 # WHY A CUSTOM LIST AT ALL. The shipped default is wrong for this host in both
 # directions. It ENABLES five DCGM_FI_PROF_* profiling fields, which take a
 # GPM/profiling context on the card and are documented by the image as requiring
-# CAP_SYS_ADMIN; on a single-GPU box whose whole purpose is serving a model to
-# 24 GB of VRAM that is not a metric, it is a tenant. And it OMITS framebuffer
+# CAP_SYS_ADMIN; on a box whose whole purpose is serving a model across both
+# cards' 24 GB of VRAM that is not a metric, it is a tenant. And it OMITS framebuffer
 # total, fan speed, the enforced power limit and the clock-event bitmask, which
 # are four of the things the dashboard exists to show.
 #
@@ -62,18 +62,38 @@ DCGM_FI_DEV_FB_USED,     gauge, Framebuffer memory used (in MiB).
 DCGM_FI_DEV_FB_FREE,     gauge, Framebuffer memory free (in MiB).
 DCGM_FI_DEV_FB_RESERVED, gauge, Framebuffer memory reserved by the driver (in MiB).
 
-# Temperature. Core and memory only. Hotspot/junction is not exposed by NVML on
-# GeForce parts at all, so it is not obtainable here by any DCGM field —
-# CoolerControl on this host reads it out of band and remains the only source.
-# MEMORY_TEMP may itself report unsupported on this card; the dashboard treats a
-# missing series as absent data, never as 0 C.
-DCGM_FI_DEV_GPU_TEMP,    gauge, GPU core temperature (in C).
-DCGM_FI_DEV_MEMORY_TEMP, gauge, GPU memory temperature (in C).
+# Temperature. Core only. Hotspot/junction is not exposed by NVML on GeForce
+# parts at all, so it is not obtainable here by any DCGM field — CoolerControl on
+# this host reads it out of band and remains the only source.
+# DCGM_FI_DEV_MEMORY_TEMP is omitted: GA102 reports it as a constant 0, not as unsupported.
+DCGM_FI_DEV_GPU_TEMP, gauge, GPU core temperature (in C).
+
+# Thermal thresholds. Static per-card limits from the VBIOS (93/95/98 C on these
+# boards), exported so the dashboard draws headroom against each card's own
+# figures rather than a hard-coded line — the two 3090s are different vendors'
+# boards and need not agree. Legacy spellings, per FIELD-NAME SPELLINGS above.
+DCGM_FI_DEV_GPU_MAX_OP_TEMP, gauge, Maximum operating temperature for the GPU (in C).
+DCGM_FI_DEV_SLOWDOWN_TEMP,   gauge, Temperature at which the GPU begins HW slowdown (in C).
+DCGM_FI_DEV_SHUTDOWN_TEMP,   gauge, Temperature at which the GPU shuts down (in C).
 
 # Power. Draw and the limit it is being held against, together — a draw figure
 # on its own cannot distinguish an idle card from a power-capped one.
 DCGM_FI_DEV_POWER_USAGE,          gauge, Board power draw (in W).
 DCGM_FI_DEV_ENFORCED_POWER_LIMIT, gauge, Enforced board power limit (in W).
+
+# Configured limit beside the enforced one: they differ when something other
+# than the operator's setting (thermal, board) is pulling the cap down, and the
+# gpu-power-limit policy on this host sets the configured value per card.
+DCGM_FI_DEV_POWER_MGMT_LIMIT, gauge, Configured power management limit (in W).
+
+# Energy. Cumulative, so rate() gives true average watts across a scrape window
+# that a 60 s sample of instantaneous draw cannot; summed over both cards it is
+# the GPU share of a llama.cpp request's energy cost.
+DCGM_FI_DEV_TOTAL_ENERGY_CONSUMPTION, counter, Total energy consumption since boot (in mJ).
+
+# Performance state. P0/P2 under load, P8 idle; a card stuck in P8 while the
+# other works is the cheapest sign of a split model running on one GPU only.
+DCGM_FI_DEV_PSTATE, gauge, Performance state (P-state) 0-15; 0 is maximum performance.
 
 # Fan. Percent of maximum, not RPM: NVML reports the card's fan as a duty cycle.
 # The board and case tachometers come from node-exporter's hwmon collector via
@@ -89,6 +109,24 @@ DCGM_FI_DEV_MEM_CLOCK, gauge, Memory clock frequency (in MHz).
 # (idle, sw/hw power cap, sw/hw thermal, sync boost, board limit). Decoded on
 # the dashboard with value mappings rather than here.
 DCGM_FI_DEV_CLOCK_THROTTLE_REASONS, gauge, Bitmask of the reasons the GPU clocks are currently limited.
+
+# Throttle durations. The bitmask above is a point sample; these are cumulative,
+# so rate() shows the fraction of time each card spent clamped by power or by
+# temperature between scrapes, which a 60 s sample of the bitmask misses.
+# UNIT CAVEAT: dcgm_fields.h describes these as usec, the pinned image's own
+# commented example rows say ns. Treat the ratio, not the absolute unit, as
+# authoritative until checked against nvidia-smi's "us" counters on this host.
+DCGM_FI_DEV_POWER_VIOLATION,   counter, Throttling duration due to power constraints.
+DCGM_FI_DEV_THERMAL_VIOLATION, counter, Throttling duration due to thermal constraints.
+
+# PCIe. Both cards share one host bridge budget when llama.cpp splits a model
+# across them, so the trained link matters. GEN and WIDTH are the CURRENT link
+# (cards downshift to gen 1 at P8 idle; read under load). REPLAY_COUNTER counts
+# link-level retransmissions — a rising value on one card is a riser or slot
+# signal-integrity fault long before it becomes an Xid.
+DCGM_FI_DEV_PCIE_LINK_GEN,       gauge,   PCIe current link generation.
+DCGM_FI_DEV_PCIE_LINK_WIDTH,     gauge,   PCIe current link width (lanes).
+DCGM_FI_DEV_PCIE_REPLAY_COUNTER, counter, Total number of PCIe retries.
 
 # Xid. Two shapes of the same event and both are wanted: the DEV field is a
 # gauge holding the LAST code seen, which answers "what broke", and the EXP

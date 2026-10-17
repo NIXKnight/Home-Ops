@@ -11,7 +11,7 @@
 # label. TLS parameters and the $connection_upgrade map are inherited from
 # 01_nginx_top_level.conf; nothing ssl_* belongs here.
 #
-# WHO CALLS IT. Grafana Alloy on the belisarius cluster, twice a minute, from off
+# WHO CALLS IT. Grafana Alloy on the Kubernetes cluster, twice a minute, from off
 # this host — which is the entire reason the exporters are fronted at all rather
 # than scraped directly. They bind the docker bridge address and are unreachable
 # from the LAN; this name is the only way in, and it carries the same wildcard
@@ -23,6 +23,24 @@
 # occupancy — which is a smaller disclosure than the inference vhosts already
 # accept, and the same recorded LAN-trust posture applies. ForwardAuth is
 # addable here later without touching the exporters.
+#
+# A THIRD PATH, FROM A WORKLOAD. /llama/metrics fronts llama-server's own
+# Prometheus endpoint (enabled by --metrics in the llama.cpp server flags). It is
+# the one path here that follows the GPU rather than the host: it answers only
+# while ai-llamacpp owns the cards and has finished loading, and returns 502
+# (unit stopped) or 503 (model loading) otherwise, which the scraper records as
+# a down target rather than a gap in the host series. llama-server has no
+# --api-key in this deployment, so this proxy adds no credential here either;
+# what it discloses is token counts, throughput and queue depth, never content.
+#
+# A FOURTH PATH, FROM THE GATEWAY. /bifrost/metrics fronts Bifrost's Prometheus
+# endpoint. Bifrost, unlike the three above, does gate /metrics behind its admin
+# Basic auth; this proxy still adds no credential, because the gateway's own
+# config exempts exactly /metrics from that auth (client.whitelisted_routes in
+# templates/bifrost/config.json.j2). The admin password therefore never appears in
+# any nginx file, and if that exemption is ever removed this path degrades to a
+# 401 rather than to a leaked credential. What it discloses is request, latency,
+# token and cost counters labelled by provider, model and virtual-key name.
 
 # Resolved once, at configuration load. host.docker.internal is written into this
 # container's /etc/hosts by the extra_hosts/host-gateway mapping in the compose
@@ -41,6 +59,19 @@ upstream metrics_node {
 
 upstream metrics_gpu {
   server {{ AI_NGINX_METRICS_GPU_UPSTREAM }};
+}
+
+# Deliberately not the `llamacpp` upstream declared in 04_llamacpp.conf, although
+# upstream names are http-scoped and that one is visible here: each vhost file
+# stays self-contained, so disabling or renaming one never breaks another.
+upstream metrics_llamacpp {
+  server {{ AI_NGINX_METRICS_LLAMACPP_UPSTREAM }};
+}
+
+# Likewise not the `bifrost` upstream declared in 03_bifrost.conf, for the same
+# self-containment reason.
+upstream metrics_bifrost {
+  server {{ AI_NGINX_METRICS_BIFROST_UPSTREAM }};
 }
 
 server {
@@ -95,6 +126,33 @@ server {
     proxy_set_header X-Forwarded-Proto $scheme;
   }
 
+  # Same exact-match rewrite as above: /llama/metrics arrives upstream as /metrics
+  # and nothing else of llama-server's API — completions, /slots, /props — is
+  # reachable through this name. Part of the same cluster contract.
+  location = /llama/metrics {
+    proxy_pass http://metrics_llamacpp/metrics;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
+  # Same exact-match rewrite: /bifrost/metrics arrives upstream as /metrics, the
+  # one gateway route exempted from admin auth, and nothing of the dashboard,
+  # admin API or inference API is reachable through this name. Part of the same
+  # cluster contract.
+  location = /bifrost/metrics {
+    proxy_pass http://metrics_bifrost/metrics;
+    proxy_http_version 1.1;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+
   # NO PROXY BUFFERING OVERRIDE and no extended timeout, unlike every other vhost
   # in this directory. Those exist for token streams and held-open SSE channels;
   # a scrape is a few tens of kilobytes the upstream produces in one shot, so
@@ -104,7 +162,7 @@ server {
   # the component that decides a scrape has failed.
 
   # Everything else is closed. There is no index, no directory listing and no
-  # third path: this name exists for exactly two URLs and says so.
+  # fifth path: this name exists for exactly four URLs and says so.
   location / {
     return 404;
   }
