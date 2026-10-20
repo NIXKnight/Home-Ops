@@ -72,10 +72,32 @@ POLL GROUPS (``--groups telemetry|settings|all``)
   ``--plan`` prints the batched read plan for the selection and exits WITHOUT any
   device I/O.
 
-  * Total read failure  -> print nothing to stdout, exit non-zero (Telegraf
-    records an error instead of ingesting partial garbage).
+  * Total read failure -> by default, print nothing to stdout and exit non-zero.
   * Single register failure -> omit that field, continue (line protocol cannot
-    carry null/empty fields).
+    carry null/empty fields). Fault health requires all six fault words; any
+    observed positive fault remains active even when other words are missing.
+
+OPTIONAL POLL STATUS (``--emit-poll-status``)
+-------------------------------------------
+Each completed poll additionally emits ``<group>_poll_timestamp_seconds``,
+``<group>_poll_fields_received``, ``<group>_poll_fields_expected`` and
+``<group>_poll_success`` for each selected group (telemetry or settings).
+The timestamp is Unix wall-clock seconds captured BEFORE connection/read attempts,
+not a native line-protocol timestamp. Counts cover decoded register definitions,
+not raw words or derived/status fields; success is 1.0 only for complete reads.
+
+Telemetry also emits ``fault_state_known`` (an observed positive fault, or all six
+fault words zero) and ``grid_total_power_read_success`` (presence, including 0 W).
+Both indicators explicitly become 0.0 when their reads cannot establish a value,
+so consumers can invalidate previously cached values. Settings never emits or
+refreshes telemetry status. Consumers must gate state on the producer timestamp's
+age as well as these indicators; an exec kill or crash cannot emit fresh status.
+
+In status mode, handled connection/zero-read failures emit ONLY status fields and
+exit zero: Telegraf inputs.exec's default ignore_error=false otherwise discards
+output on non-zero exit. No physical values are fabricated. Import/configuration
+errors and unexpected crashes remain errors; the legacy failure/output contract
+is unchanged without this flag.
 
 CONNECTION PARAMETERS (precedence: env > positional arg > default)
 -----------------------------------------------------------------
@@ -93,7 +115,9 @@ import os
 import socket
 import struct
 import sys
+import time
 from dataclasses import dataclass
+from typing import NoReturn
 
 try:
     from pysolarmanv5 import (
@@ -101,8 +125,8 @@ try:
         PySolarmanV5,
         V5FrameError,
     )
-except Exception as exc:  # noqa: BLE001 - dep missing/broken: fail closed for Telegraf
-    sys.stderr.write(f"get-deye-data: pysolarmanv5 import failed: {exc}\n")
+except Exception:  # noqa: BLE001 - dep missing/broken: fail closed for Telegraf
+    sys.stderr.write("get-deye-data: pysolarmanv5 import failed\n")
     sys.exit(3)
 
 
@@ -311,6 +335,11 @@ FAULT_REGISTER_NAMES: tuple[str, ...] = (
     "fault_6",
 )
 DERIVED_FAULT_ACTIVE = "fault_active"
+POLL_STATUS_FIELDS: tuple[str, ...] = tuple(
+    f"{group}_poll_{suffix}"
+    for group in GROUP_REGISTERS
+    for suffix in ("timestamp_seconds", "fields_received", "fields_expected", "success")
+) + ("fault_state_known", "grid_total_power_read_success")
 
 
 # ---------------------------------------------------------------------------
@@ -566,16 +595,50 @@ def _fmt_field(value: float | int) -> str:
 
 
 def compute_fault_active(values: dict[str, float | int]) -> float | None:
-    """Derive ``fault_active`` from the fault_N registers actually read.
+    """Return observed fault activity, complete health, or unknown by omission.
 
-    Returns 1.0 if any present ``fault_N`` value is > 0, else 0.0. Returns
-    ``None`` when NONE of the fault registers were read this cycle, so we never
-    emit a misleading "no fault" 0.0 when those reads simply failed.
+    Returns:
+        1.0 if any observed fault word is positive, even with missing words.
+        0.0 only if all six required fault words were successfully read as zero.
+        None otherwise, so incomplete reads never fabricate a healthy state.
     """
     present = [values[name] for name in FAULT_REGISTER_NAMES if name in values]
-    if not present:
-        return None
-    return 1.0 if any(v > 0 for v in present) else 0.0
+    if any(value > 0 for value in present):
+        return 1.0
+    if len(present) == len(FAULT_REGISTER_NAMES) and all(
+        value == 0 for value in present
+    ):
+        return 0.0
+    return None
+
+
+def _build_poll_status(
+    values: dict[str, float | int], selection: str, timestamp: float
+) -> dict[str, float | int]:
+    """Build selected-group diagnostics without inventing physical readings.
+
+    Args:
+        values: Successfully decoded fields from this invocation only.
+        selection: The telemetry, settings, or all group selection.
+        timestamp: Unix wall-clock seconds captured before connection attempts.
+
+    Returns:
+        Group-specific counts, completeness flags, and producer timestamp, plus
+        fault/grid validity indicators only when telemetry was selected.
+    """
+    status: dict[str, float | int] = {}
+    groups = _groups_in(selection)
+    for group in groups:
+        registers = GROUP_REGISTERS[group]
+        received = sum(rd.name in values for rd in registers)
+        status[f"{group}_poll_timestamp_seconds"] = timestamp
+        status[f"{group}_poll_fields_received"] = received
+        status[f"{group}_poll_fields_expected"] = len(registers)
+        status[f"{group}_poll_success"] = float(received == len(registers))
+    if "telemetry" in groups:
+        status["fault_state_known"] = float(compute_fault_active(values) is not None)
+        status["grid_total_power_read_success"] = float("grid_total_power" in values)
+    return status
 
 
 def build_lines(
@@ -583,8 +646,9 @@ def build_lines(
 ) -> list[str]:
     """Build one line-protocol line per metric, preserving register order.
 
-    ``registers``-driven metrics are emitted first, in list order; any derived
-    field (e.g. ``fault_active``) present in ``values`` is appended after them.
+    ``registers``-driven metrics are emitted first, in list order; derived
+    ``fault_active`` and explicitly supported poll-status fields follow when
+    present in ``values``. Other fields are never emitted.
 
     Format (no timestamp; Telegraf stamps it)::
 
@@ -594,7 +658,9 @@ def build_lines(
     lines: list[str] = []
     for rd in registers:
         if rd.name in values:
-            lines.append(f"{MEASUREMENT},host={host_tag} {rd.name}={_fmt_field(values[rd.name])}")
+            lines.append(
+                f"{MEASUREMENT},host={host_tag} {rd.name}={_fmt_field(values[rd.name])}"
+            )
     # Derived fields (not backed by a register) are appended after the
     # register-driven lines, preserving the existing line-protocol contract.
     if DERIVED_FAULT_ACTIVE in values:
@@ -602,19 +668,35 @@ def build_lines(
             f"{MEASUREMENT},host={host_tag} "
             f"{DERIVED_FAULT_ACTIVE}={_fmt_field(values[DERIVED_FAULT_ACTIVE])}"
         )
+    for field in POLL_STATUS_FIELDS:
+        if field in values:
+            lines.append(
+                f"{MEASUREMENT},host={host_tag} {field}={_fmt_field(values[field])}"
+            )
     return lines
 
 
 # ---------------------------------------------------------------------------
 # CLI: argument parsing, group selection, read-plan preview
 # ---------------------------------------------------------------------------
+class _ArgumentParser(argparse.ArgumentParser):
+    """Keep invalid connection arguments out of CLI diagnostics."""
+
+    def error(self, message: str) -> NoReturn:
+        """Reject arguments without echoing potentially identifying values."""
+        self.print_usage(sys.stderr)
+        self.exit(2, f"{self.prog}: invalid arguments (see --help)\n")
+
+
 def _parse_args(argv: list[str]) -> argparse.Namespace:
     """Parse CLI args, preserving the legacy ``<IP> <SERIAL>`` positional form."""
-    parser = argparse.ArgumentParser(
+    parser = _ArgumentParser(
         prog="get-deye-data.py",
         description="Single-shot read-only Deye hybrid poller -> InfluxDB line protocol.",
     )
-    parser.add_argument("ip", nargs="?", default=None, help="logger IP (or $DEYE_LOGGER_IP)")
+    parser.add_argument(
+        "ip", nargs="?", default=None, help="logger IP (or $DEYE_LOGGER_IP)"
+    )
     parser.add_argument(
         "serial", nargs="?", default=None, help="logger serial (or $DEYE_LOGGER_SERIAL)"
     )
@@ -623,6 +705,11 @@ def _parse_args(argv: list[str]) -> argparse.Namespace:
         choices=("telemetry", "settings", "all"),
         default="telemetry",
         help="register set to poll (default: telemetry, the fast every-run set)",
+    )
+    parser.add_argument(
+        "--emit-poll-status",
+        action="store_true",
+        help="emit freshness/completeness status, including handled failures (exit zero)",
     )
     parser.add_argument(
         "--plan",
@@ -671,6 +758,7 @@ def _print_plan(selection: str) -> None:
 # Main: single-shot for Telegraf
 # ---------------------------------------------------------------------------
 def main(argv: list[str]) -> int:
+    """Run one read-only poll, preserving legacy output unless status is enabled."""
     args = _parse_args(argv)
 
     # --plan is a pure preview: emit the read plan and exit without any socket.
@@ -684,16 +772,19 @@ def main(argv: list[str]) -> int:
 
     modbus: PySolarmanV5 | None = None
     values: dict[str, float | int] = {}
+    poll_timestamp = time.time() if args.emit_poll_status else 0.0
+    failure_exit = 1
 
     # At most one reconnect attempt; never loop/backoff (Telegraf has its own
-    # timeout). Eager-connect errors surface from _connect() in 3.0.4.
+    # timeout). Eager-connect errors surface from _connect() in 3.0.x.
     for attempt in (1, 2):
         try:
             modbus = _connect(cfg)
-        except TRANSIENT_ERRORS as exc:
+        except TRANSIENT_ERRORS:
             if attempt == 2:
-                sys.stderr.write(f"get-deye-data: connect failed: {type(exc).__name__}: {exc}\n")
-                return 2
+                sys.stderr.write("get-deye-data: connect failed\n")
+                failure_exit = 2
+                break
             continue  # one retry
 
         try:
@@ -712,22 +803,33 @@ def main(argv: list[str]) -> int:
         modbus = None
 
     if not values:
-        # Total read failure: print NOTHING to stdout so Telegraf records an
-        # error rather than ingesting partial/garbage data.
-        sys.stderr.write("get-deye-data: no registers read; emitting nothing\n")
-        return 1
+        if failure_exit == 1:
+            detail = "poll status only" if args.emit_poll_status else "nothing"
+            sys.stderr.write(f"get-deye-data: no registers read; emitting {detail}\n")
+        if not args.emit_poll_status:
+            return failure_exit
 
-    # Derived field: fault_active. Only injected when at least one fault_N
-    # register was actually read (compute_fault_active returns None otherwise),
-    # so a failed fault read never masquerades as "no fault".
+    # Unknown fault activity stays absent; status mode explicitly invalidates
+    # cached prior healthy/active values through fault_state_known=0.0.
     fault_active = compute_fault_active(values)
     if fault_active is not None:
         values[DERIVED_FAULT_ACTIVE] = fault_active
+    if args.emit_poll_status:
+        values.update(_build_poll_status(values, args.groups, poll_timestamp))
 
     sys.stdout.write("\n".join(build_lines(values, host, registers)) + "\n")
     sys.stdout.flush()
     return 0
 
 
+def _run_cli(argv: list[str]) -> int:
+    """Fail unexpected CLI crashes non-zero without disclosing exception text."""
+    try:
+        return main(argv)
+    except Exception:  # noqa: BLE001 - CLI boundary only; never report a good poll
+        sys.stderr.write("get-deye-data: unexpected collector error\n")
+        return 1
+
+
 if __name__ == "__main__":
-    sys.exit(main(sys.argv))
+    sys.exit(_run_cli(sys.argv))
