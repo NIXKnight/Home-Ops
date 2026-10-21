@@ -1,8 +1,9 @@
 # Hybrid Solar Plant dashboard: source, validation and rollout
 
-This is a **source-only repair**, not evidence that either live Grafana has changed.
-The collector, Telegraf inputs and both dashboards must be rolled out together by
-an authorized Operator. Do not manipulate Grafana's database or extract tokens.
+This is a **source-only dashboard repair**, not evidence that either live Grafana
+has changed. Poll diagnostics have been deployed since 2026-10-20; dashboard source
+and generated cluster manifest still require an authorized Operator rollout. Do not
+manipulate Grafana's database or extract tokens.
 
 ## One source, two explicit profiles
 
@@ -51,6 +52,12 @@ Both solar exec definitions opt in to `--emit-poll-status`. Existing metric floa
 measurement `deye_inverter`, host tag, 5s/300s polling, 4s/30s timeouts, 5s flush,
 60s exporter cache expiry and unrelated outputs are unchanged.
 
+Poll diagnostics begin only in the newer retained data. There is deliberately no
+hard-coded deployment timestamp in the dashboard: historical graphs query raw
+measurements, while current snapshots fail closed and range aggregates report
+coverage separately. Missing diagnostics before their deployment remain absent,
+not fabricated as healthy or as zero.
+
 - `telemetry_poll_timestamp_seconds`: producer wallclock **before** read attempts;
   `telemetry_poll_fields_received/expected`; `telemetry_poll_success` (all 66 read).
 - `fault_state_known`: 1 when an active fault is observed OR all six words are zero;
@@ -80,19 +87,29 @@ old heartbeat observations to display age; that does not make physical data vali
   functionality or blanket zero rejection is introduced.
 - Missing/nonfinite/ambiguous Power Flow values say Unavailable; any unknown node
   suppresses arrows. Current nulls are not replaced by earlier non-null values.
-- Qualified histories require diagnostics at their evaluation time. Earlier-day
-  comparisons shift poll health too. Pre-diagnostic observations are not assigned
-  fabricated health, zero thermal exposure, connection percentages or counts.
-- Connection percentage uses qualified observations. Disconnection count uses
-  per-series `floor((changes + 1 - last_state)/2)` on a 5s/10s qualified observation
-  grid. Initially disconnected is not an observed onset. Gaps/resampling can conceal
-  events; this is not a continuous-duration availability SLO.
-- Heartbeat sample coverage is received diagnostic samples / nominal expected
-  samples (clamped to 100%); complete-poll percentage is among received diagnostics.
-  Neither reconstructs missed device reads, elapsed outages or unknown intervals.
+- Current status/value panels require fresh producer timestamps and the applicable
+  complete-poll, grid-read or fault-known predicate. Settings snapshots retain the
+  separate ten-minute value/diagnostic lookback, successful latest poll and producer
+  age under 600 seconds.
+- Historical range graphs deliberately use raw retained measurements. This restores
+  pre-diagnostic history removed by internal commit `8cb7511`; `714f7a5` is the last
+  pre-regression dashboard baseline. Null bridging remains disabled, so missing
+  retained samples appear as gaps. Older observations are legacy/unqualified and
+  must not be described as freshness-validated current readings.
+- Historical fault timeline values are also raw legacy observations. The current
+  fault stat alone requires `fault_state_known` plus freshness.
+- Selected/fixed-window aggregates operate on raw measurements and expose complete
+  expected-sample coverage separately. Coverage is absent, not zero, before poll
+  diagnostics existed. A low or missing coverage value limits confidence without
+  deleting the aggregate.
+- Connection percentage uses raw observed states. Disconnection count retains
+  per-series `floor((changes + 1 - last_state)/2)`. Initially disconnected is not an
+  observed onset. Gaps/resampling can conceal events; this is not a continuous-duration
+  availability SLO. Heartbeat coverage and complete expected-sample coverage are
+  shown separately.
 - Hot/out-of-band minute observations are boolean sums on a one-minute grid, not
   exact elapsed durations. Observed below-band values yield labeled zero; absent
-  qualified observations remain unavailable. Battery 45°C orange is an observation
+  observations remain unavailable. Battery 45°C orange is an observation
   band, not a manufacturer safety/charge threshold. BMS limit/temperature register
   semantics still need authoritative pack/firmware confirmation.
 - Discharge/charge energy over 3d is a throughput ratio, not physical round-trip
@@ -100,13 +117,31 @@ old heartbeat observations to display age; that does not make physical data vali
   input/load ratios do not allocate charging, losses or auxiliary-port boundaries.
   There is no UPS=load-GEN inference, reserve-aware backup-runtime claim, assumed
   LFP floor or PV string-failure diagnosis from mismatch alone.
-- Trailing 24h energy is a line of overlapping lifetime-register increases, NOT
-  local calendar-day buckets; do not sum overlapping points. `increase` extrapolates
-  edges. Any counter decrease invalidates its entire window instead of counting a
-  zero/restoration glitch as production. Real resets are also unavailable; no
-  unsupported correction is invented. Device day/month/year use inverter clocks.
-- Null bridging is disabled. Prometheus lookback may still hold the last qualified
-  observation within the bounded freshness budget; graphs are sampled, not continuous.
+- **Device-Day Energy — Gross Flows (not load attribution)** requests 30 days and
+  displays five direct inverter-maintained counters as one non-stacked bar series
+  per completed device day: load consumed, PV produced, grid imported, battery
+  discharged and battery charged. Load is directly measured; the other series are
+  gross flows, not allocation of load. Do not sum them. The cross-version time-series
+  panel uses transparent bar overlays because it cannot group separate Prometheus
+  frames side by side. Panel 17 intentionally remains the current partial device day.
+- Read-only 30-day checks observed 28 load-counter resets in the cluster store; the
+  shorter gateway retention previously exposed 16. Five recent resets appeared at
+  `2026-10-16T19:01:40Z`–`19:01:50Z`, `2026-10-17T19:01:40Z`–`19:01:50Z`,
+  `2026-10-18T19:01:35Z`–`19:01:50Z`, `2026-10-19T19:01:35Z`–`19:01:50Z`, and
+  `2026-10-20T19:01:35Z`–`19:01:40Z` across the two stores. This is device midnight
+  (19:00 UTC / 00:00 Asia/Karachi) plus collection latency.
+- Each panel-52 energy query is evaluated once per UTC day and applies
+  `max_over_time(metric[23h59m] offset 4h59m)` to raw samples from 19:02 UTC through
+  19:01 UTC. The observation-safe interior excludes both adjacent delayed-reset
+  samples. A marker at `00:00Z` represents the immediately preceding Asia/Karachi
+  device day. Missing windows remain absent, all-zero days remain zero, and an
+  isolated false zero cannot lower a day’s maximum; a false high sample can still
+  inflate it. A separate right-axis line reports complete expected-sample coverage
+  for the diagnostics era and is absent before diagnostics existed. Grafana aligns
+  the 1d Prometheus step to UTC; an explicitly selected absolute range overrides the
+  panel's 30-day relative request.
+- Null bridging is disabled. Prometheus native lookback/staleness still applies;
+  graphs are sampled, not continuous.
 
 ## Validation and rollout boundary
 
@@ -131,32 +166,69 @@ dashboard = checks['renderer'].render('cluster')
 # Panel 41/H: observed disconnections; change panel/ref only as needed.
 query = checks['substitute'](checks['target'](dashboard, 41, 'H')['expr'], 5)
 rows = checks['prometheus'](query)
-print({'series': len(rows), 'numeric_values': [float(row['value'][1]) for row in rows]})
+print({'series': len(rows)})  # Never print household measurements.
 PY
 ```
 
-Tests check canonical/profile parity, query gates and actual collector pure-function
-contracts, all substituted profile queries, real ECharts execution, labeled thermal
-zero vs absence, counter-reset exclusion, settings expiry/jitter/failure, and 2046
-binary disconnection sequences. Independent engine checks evaluated 124 unique
-cluster/profile expressions on 3.13.1 and 110 gateway-profile expressions through
-read-only host-local GETs on 2.53.1. These do not establish browser rendering
-(Grafana 10.2.8 versus cluster 13.0.1) or deployed fixes.
+Tests check canonical/profile parity, the explicit current/historical/aggregate/
+settings/diagnostic policy matrix, raw pre-diagnostic history, coverage absence,
+daily-step panel-52 semantics, current stale/partial suppression, valid zero, actual
+collector pure-function contracts, all substituted profile queries, real ECharts
+execution, settings expiry/jitter/failure, and 2046 binary disconnection sequences.
+A 30-day, 1d-step range evaluation returned UTC-aligned date markers for each of the
+five raw panel-52 energy bars. Read-only checks evaluate both rendered profiles on
+cluster Prometheus; a separate safe host-local GET audit may evaluate all unique
+queries on gateway Prometheus 2.53.1 without reading credentials or printing values.
+Grafana 10.2.8 supports the encoded time-series defaults (bars) and per-series `F`
+overrides (`custom.drawStyle=line`, zero fill, right axis, percent unit). Source-only
+checks do not establish deployment or browser-renderer parity.
 
-The engines report a counter-name heuristic for five existing lifetime series:
-`total_production`, `total_load_consumption`, `total_energy_bought`,
-`total_battery_charge`, `total_battery_discharge` (all `deye_inverter_` prefixed).
-Their names do not END in `_total/_sum/_count/_bucket`; the exporter declares them
-untyped. 3.13.1 returns these five as informational annotations; 2.53.1 places them
-in its warnings envelope despite the `PromQL info` text. Producer register definitions
-establish cumulative kWh semantics; queries retain legacy names, guard decreases,
-and do not rename/type-change the existing metric contract merely to hide a naming
-heuristic. No query parse/evaluation failures were observed.
+For this source revision, each rendered profile has 132 unique PromQL expressions;
+the union is 150 because cadence-dependent expressions differ. The union evaluated
+successfully through the read-only cluster Prometheus 3.13.1 service proxy with no
+warnings (two informational counter-name annotations). A native gateway 2.53.1
+recheck still requires a working authorized host-local SSH/GET route; do not replace
+that check with credentials, secret-file inspection, a listener or a browser session.
 
-Future Operator rollout order: collector plus both exec flags; verify new health
-fields and failed/partial behavior; then reconcile the cluster CR and import the
-explicit-identity gateway profile. Before diagnostics exist, unavailable panels
-are intentional. Confirm both datasources, both ingestion cadences and both UIs.
-No rollout, commit, restart, source-state fabrication or remote write is performed
-by the renderer/tests. Counter-discontinuity cause and physical energy-allocation
-boundaries remain unresolved.
+The engines report a counter-name heuristic for the two lifetime series still used
+with `increase`: `total_battery_charge` and `total_battery_discharge` (both
+`deye_inverter_` prefixed). Their names do not end in
+`_total/_sum/_count/_bucket`; the exporter declares them untyped. 3.13.1 returns
+two informational annotations; 2.53.1 places two annotations in its warnings
+envelope despite the `PromQL info` text. Producer register definitions establish
+cumulative kWh semantics; queries retain legacy names, guard decreases, and do not
+rename/type-change the existing metric contract merely to hide a naming heuristic.
+No query parse/evaluation failures were observed.
+
+## Focused producer-field coverage audit
+
+The dashboard has 39 data panels and 157 targets: 65 current snapshots, 35 raw
+historical targets, 23 raw aggregate measurements, 15 settings snapshots, 13 core
+diagnostics and 6 aggregate coverage targets. It directly references 63 of the
+82 register fields plus the required derived/poll-health fields. The 19 unreferenced
+register fields were reviewed rather than mechanically graphed:
+
+- `daily_energy_sold`, `total_energy_sold`, and `total_grid_production` stay omitted:
+  this installation has no grid export and no export feature is implied.
+- Six raw `fault_*` words stay omitted: `fault_active`, BMS alarm/fault and the status
+  timeline already expose trustworthy state, while bit-to-fault decoding lacks an
+  authoritative map for this exact model/firmware.
+- Three external-CT values stay omitted because the CT is not wired/configured.
+- Generator-ready stays omitted; the auxiliary port’s installed role is unverified.
+- Alternate battery/BMS SoC, voltage, temperature and maximum-limit registers stay
+  omitted because existing selected measurements and limits cover operations, and
+  their comparative semantics are not authoritative enough for a new discrepancy
+  panel.
+
+No extra panel was added. Data-quality/poll health, battery reserve/configuration,
+grid/protector unavailable observations, and current-day summary are already
+covered. A daily power/energy-balance residual was rejected because conversion
+losses and auxiliary boundaries would make it an unattributable residual rather
+than a reliable accounting signal. Panel 39’s proxy/ratio names and description
+remain explicit; its mixed arithmetic/state contents do not justify another panel.
+
+For an authorized dashboard rollout, reconcile the cluster CR and import the
+explicit-identity gateway profile. Confirm both datasources, both ingestion cadences
+and both UIs. No rollout, commit, restart, source-state fabrication or remote write
+is performed by the renderer/tests. Physical energy-allocation boundaries remain
+unresolved.

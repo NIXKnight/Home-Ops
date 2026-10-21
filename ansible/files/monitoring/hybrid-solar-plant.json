@@ -345,7 +345,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "100 \u00d7 (1 \u2212 grid power / measured load). Not measured self-sufficiency: grid battery charging and wiring boundaries are not allocated. Negative values are possible; zero load is unavailable. Fresh complete telemetry only.",
+      "description": "100 \u00d7 (1 \u2212 grid power / measured load). Not measured self-sufficiency: grid battery charging and wiring boundaries are not allocated. Negative values are possible; zero load is unavailable. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -429,7 +429,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((100 * (1 - deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"} / deye_inverter_load_total_power{host=\"ASTRONOMICAN\"})) and on(host) (deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "((100 * (1 - deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"} / deye_inverter_load_total_power{host=\"ASTRONOMICAN\"})) and on(host) (deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} > 0))",
           "instant": false,
           "legendFormat": "Load minus grid ratio (proxy)",
           "range": true,
@@ -581,7 +581,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "PV power over time: per-string and total. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "PV power over time: per-string and total. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -685,7 +685,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV1",
           "range": true,
@@ -697,7 +697,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV2",
           "range": true,
@@ -709,7 +709,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Total PV",
           "range": true,
@@ -724,7 +724,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Measured string power difference and PV1 fraction. Share is unavailable when total PV is zero. Orientation, array size, irradiance and shading are unverified; mismatch alone does not diagnose a failed string.",
+      "description": "Measured string power difference and PV1 fraction. Share is unavailable when total PV is zero. Orientation, array size, irradiance and shading are unverified; mismatch alone does not diagnose a failed string. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -833,7 +833,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} - deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} - deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Power delta (PV1\u2212PV2)",
           "range": true,
@@ -845,7 +845,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((100 * deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} / (deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})) and on(host) ((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "((100 * deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} / (deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})) and on(host) ((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) > 0))",
           "instant": false,
           "legendFormat": "PV1 share",
           "range": true,
@@ -860,7 +860,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Measured string voltage/current operating points. Dawn/dusk, shading, array topology and the actual inverter MPPT specification must be considered; no fixed 150 V fault diagnosis is asserted. Qualified complete polls only.",
+      "description": "Measured string voltage/current operating points. Dawn/dusk, shading, array topology and the actual inverter MPPT specification must be considered; no fixed 150 V fault diagnosis is asserted. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -977,7 +977,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_voltage{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_voltage{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV1 V",
           "range": true,
@@ -989,7 +989,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv2_voltage{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv2_voltage{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV2 V",
           "range": true,
@@ -1001,7 +1001,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_current{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_current{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV1 I",
           "range": true,
@@ -1013,7 +1013,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv2_current{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv2_current{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV2 I",
           "range": true,
@@ -1429,7 +1429,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Arithmetic ratios, not allocation or efficiency measurements. Three-day discharge/charge depends on changes in stored energy and is unavailable for counter-decrease windows or zero charge. Daily counters use the inverter clock; charge+discharge is kWh throughput, not cycles. Ratios may exceed 100% or be negative.",
+      "description": "Arithmetic ratios, not allocation or efficiency measurements. Three-day discharge/charge depends on changes in stored energy and is unavailable for counter-decrease windows or zero charge. Daily counters use the inverter clock; charge+discharge is kWh throughput, not cycles. Ratios may exceed 100% or be negative. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1563,7 +1563,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((((100 * increase(deye_inverter_total_battery_discharge{host=\"ASTRONOMICAN\"}[3d]) / increase(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d])) and on(host) (increase(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d]) > 0)) unless on(host) (resets(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d]) > 0)) unless on(host) (resets(deye_inverter_total_battery_discharge{host=\"ASTRONOMICAN\"}[3d]) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "((((100 * increase(deye_inverter_total_battery_discharge{host=\"ASTRONOMICAN\"}[3d]) / increase(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d])) and on(host) (increase(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d]) > 0)) unless on(host) (resets(deye_inverter_total_battery_charge{host=\"ASTRONOMICAN\"}[3d]) > 0)) unless on(host) (resets(deye_inverter_total_battery_discharge{host=\"ASTRONOMICAN\"}[3d]) > 0))",
           "instant": true,
           "legendFormat": "Discharge / charge energy (3d)",
           "range": false,
@@ -1616,6 +1616,18 @@
           "legendFormat": "Battery State",
           "range": false,
           "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[3d]) * ${solar_sample_interval_s} / 259200, 1) * 100",
+          "instant": true,
+          "legendFormat": "3d complete expected-sample coverage",
+          "range": false,
+          "refId": "F"
         }
       ],
       "title": "Battery & Energy Ratios",
@@ -1626,7 +1638,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Linear regression of fresh complete-poll SOC observations over 30 minutes; positive = draining, negative = charging. Not backup runtime or energy capacity. Requires at least two qualified observations. No fabricated charging-time cap.",
+      "description": "Linear regression of raw SOC observations over 30 minutes; positive = draining, negative = charging. Not backup runtime or energy capacity. Requires at least two observations. No fabricated charging-time cap. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1646,7 +1658,24 @@
           "unit": "suffix:pp/h",
           "noValue": "Unavailable"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -1678,11 +1707,23 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(-deriv(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[30m:${solar_sample_interval_s}s]) * 3600) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(-deriv(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}))[30m:${solar_sample_interval_s}s]) * 3600)",
           "instant": true,
           "legendFormat": "SOC drain trend (pp/h)",
           "range": false,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[30m]) * ${solar_sample_interval_s} / 1800, 1) * 100",
+          "instant": true,
+          "legendFormat": "30m complete expected-sample coverage",
+          "range": false,
+          "refId": "B"
         }
       ],
       "title": "Battery SOC Trend",
@@ -1693,7 +1734,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Maximum minus minimum qualified SOC over the selected range: an observed excursion, not cycle count or absolute depth of discharge. No battery chemistry or reserve is assumed. Gaps and missing history may hide extrema.",
+      "description": "Maximum minus minimum raw SOC over the selected range: an observed excursion, not cycle count or absolute depth of discharge. No battery chemistry or reserve is assumed. Gaps and missing history may hide extrema. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1745,7 +1786,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]) - min_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]) - min_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "SOC swing",
           "range": false,
@@ -1757,7 +1798,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(min_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(min_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "SOC minimum",
           "range": false,
@@ -1769,11 +1810,23 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time(((deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "SOC maximum",
           "range": false,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[$__range]) * ${solar_sample_interval_s} / $__range_s, 1) * 100",
+          "instant": true,
+          "legendFormat": "Selected-range complete expected-sample coverage",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "Observed SOC Range",
@@ -1784,7 +1837,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Battery power (signed, + discharge / \u2212 charge) on the left axis and SoC on the right axis. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "Battery power (signed, + discharge / \u2212 charge) on the left axis and SoC on the right axis. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1924,7 +1977,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_battery_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_battery_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Battery Power",
           "range": true,
@@ -1936,7 +1989,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_bms_soc{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Battery SoC",
           "range": true,
@@ -1951,7 +2004,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "BMS-reported battery state of charge. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "BMS-reported battery state of charge. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2037,7 +2090,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_bms_soc{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_bms_soc{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "SoC",
           "range": true,
@@ -2053,7 +2106,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "BMS-reported battery temperature. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "BMS-reported battery temperature. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2137,7 +2190,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Battery",
           "range": true,
@@ -2153,7 +2206,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Inferred BMS charge/discharge limits and absolute measured battery current. Only the limit for the actual current direction is relevant. Limit semantics/scaling need manufacturer/pack confirmation; magnitude alone is not proof of derating.",
+      "description": "Inferred BMS charge/discharge limits and absolute measured battery current. Only the limit for the actual current direction is relevant. Limit semantics/scaling need manufacturer/pack confirmation; magnitude alone is not proof of derating. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2282,7 +2335,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_battery_charge_current_limit{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_battery_charge_current_limit{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Charge limit",
           "range": true,
@@ -2294,7 +2347,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_battery_discharge_current_limit{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_battery_discharge_current_limit{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Discharge limit",
           "range": true,
@@ -2306,7 +2359,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(abs(deye_inverter_battery_current{host=\"ASTRONOMICAN\"})) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(abs(deye_inverter_battery_current{host=\"ASTRONOMICAN\"}))",
           "instant": false,
           "legendFormat": "Actual |I|",
           "range": true,
@@ -2618,7 +2671,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Grid connection/protector state, NOT utility-only availability. Events count observed 1\u21920 transitions on a nominal 5s cluster/10s gateway observation grid; initial already-disconnected state is not an onset. Fresh complete polls only. Gaps can conceal transitions/extrema. Connected percentage uses qualified observations, not elapsed uptime. Heartbeat coverage is received diagnostic samples / nominal expected samples; complete-poll percentage is among received diagnostics. Neither reconstructs missing time. Voltage/frequency quality uses connected samples; thermal/voltage minute counts are sampled observations, not exact durations. History before poll diagnostics is unavailable.",
+      "description": "Grid connection/protector state, NOT utility-only availability. Events count observed 1\u21920 transitions on a nominal 5s cluster/10s gateway observation grid; initial already-disconnected state is not an onset. Gaps can conceal transitions/extrema. Connected percentage uses raw observed states, not elapsed uptime. Heartbeat coverage is received diagnostics / nominal expected samples; complete expected-sample coverage counts successful polls against nominal expected samples. Neither reconstructs missing time. Voltage/frequency quality uses connected samples; minute counts are sampled observations, not exact durations. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -2855,9 +2908,9 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(avg_over_time(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]) * 100) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(avg_over_time(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]) * 100)",
           "instant": true,
-          "legendFormat": "Connected qualified observations",
+          "legendFormat": "Connected raw observations",
           "range": false,
           "refId": "A"
         },
@@ -2879,7 +2932,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(min_over_time((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(min_over_time((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Grid V min",
           "range": false,
@@ -2891,7 +2944,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Grid V max",
           "range": false,
@@ -2903,7 +2956,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum_over_time((((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))) < bool 207) + ((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))) > bool 253))[$__range:1m])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(sum_over_time((((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1))) < bool 207) + ((((deye_inverter_grid_voltage{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1))) > bool 253))[$__range:1m]))",
           "instant": true,
           "legendFormat": "Out-of-band minute observations",
           "range": false,
@@ -2915,7 +2968,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(min_over_time((((deye_inverter_grid_frequency{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(min_over_time((((deye_inverter_grid_frequency{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Freq min",
           "range": false,
@@ -2927,7 +2980,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time((((deye_inverter_grid_frequency{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time((((deye_inverter_grid_frequency{host=\"ASTRONOMICAN\"}) and on(host) (deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Freq max",
           "range": false,
@@ -2939,7 +2992,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(floor((changes(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s]) + 1 - last_over_time(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) / 2)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(floor((changes(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]) + 1 - last_over_time(((deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s])) / 2))",
           "instant": true,
           "legendFormat": "Observed disconnections",
           "range": false,
@@ -2951,9 +3004,9 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "avg_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[$__range]) * 100",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[$__range]) * ${solar_sample_interval_s} / $__range_s, 1) * 100",
           "instant": true,
-          "legendFormat": "Complete poll samples",
+          "legendFormat": "Complete expected-sample coverage",
           "range": false,
           "refId": "I"
         }
@@ -2966,7 +3019,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Grid power over time. Positive = import (this site has no export). Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "Grid power over time. Positive = import (this site has no export). Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3051,7 +3104,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_grid_total_power_read_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Grid Import",
           "range": true,
@@ -3469,7 +3522,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Measured PV, load, grid and auxiliary-port power boundaries. No allocation, UPS subtraction or additive energy-balance claim; the auxiliary port may be configured differently. Missing/partial/stale observations remain gaps.",
+      "description": "Measured PV, load, grid and auxiliary-port power boundaries. No allocation, UPS subtraction or additive energy-balance claim; the auxiliary port may be configured differently. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -3569,7 +3622,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV",
           "range": true,
@@ -3581,7 +3634,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Total Load",
           "range": true,
@@ -3593,7 +3646,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_grid_total_power_read_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Grid Import",
           "range": true,
@@ -3605,7 +3658,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_generator_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_generator_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Auxiliary port power",
           "range": true,
@@ -4002,7 +4055,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Count of qualified hot observations on a one-minute grid, NOT exact elapsed hot minutes. Valid below-band observations yield labeled zero; absent/unqualified history yields unavailable, never a fallback zero. See heartbeat coverage and complete-poll fraction in Grid Connection & Quality; gaps can hide thermal events. Bands are observation settings, not manufacturer safety ratings.",
+      "description": "Count of raw hot observations on a one-minute grid, NOT exact elapsed hot minutes. Valid below-band observations yield labeled zero; absent history yields unavailable, never a fallback zero. Gaps can hide thermal events. Bands are observation settings, not manufacturer safety ratings. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4030,7 +4083,24 @@
           "unit": "suffix: observations",
           "noValue": "Unavailable"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -4062,7 +4132,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum_over_time((((deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))) > bool 60)[$__range:1m])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(sum_over_time((((deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"})) > bool 60)[$__range:1m]))",
           "instant": true,
           "legendFormat": "AC >60\u00b0C",
           "range": false,
@@ -4074,7 +4144,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum_over_time((((deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))) > bool 60)[$__range:1m])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(sum_over_time((((deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"})) > bool 60)[$__range:1m]))",
           "instant": true,
           "legendFormat": "DC >60\u00b0C",
           "range": false,
@@ -4086,11 +4156,23 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(sum_over_time((((deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))) > bool 45)[$__range:1m])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(sum_over_time((((deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"})) > bool 45)[$__range:1m]))",
           "instant": true,
           "legendFormat": "Batt >45\u00b0C",
           "range": false,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[$__range]) * ${solar_sample_interval_s} / $__range_s, 1) * 100",
+          "instant": true,
+          "legendFormat": "Selected-range complete expected-sample coverage",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "Hot Minute Observations",
@@ -4101,7 +4183,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Inverter and battery temperatures over time. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "Inverter and battery temperatures over time. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4185,7 +4267,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_bms_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Battery",
           "range": true,
@@ -4197,7 +4279,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "DC",
           "range": true,
@@ -4209,7 +4291,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "AC",
           "range": true,
@@ -4224,7 +4306,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Inverter AC and DC heatsink temperatures. Missing, stale or incomplete poll data is unavailable; zero is a valid measurement.",
+      "description": "Inverter AC and DC heatsink temperatures. Zero is a valid measurement. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4308,7 +4390,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_ac_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "AC",
           "range": true,
@@ -4320,7 +4402,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_dc_temperature{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "DC",
           "range": true,
@@ -4336,7 +4418,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Load / (PV1 + PV2 + positive battery discharge + positive grid power). An arithmetic boundary ratio, NOT conversion efficiency: battery charging, auxiliary-port role, losses and wiring allocation are not resolved. No expected efficiency band or zero-input division.",
+      "description": "Load / (PV1 + PV2 + positive battery discharge + positive grid power). An arithmetic boundary ratio, NOT conversion efficiency: battery charging, auxiliary-port role, losses and wiring allocation are not resolved. No expected efficiency band or zero-input division. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4420,7 +4502,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((100 * deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} / (deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} + clamp_min(deye_inverter_battery_power{host=\"ASTRONOMICAN\"}, 0) + clamp_min(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}, 0))) and on(host) ((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} + clamp_min(deye_inverter_battery_power{host=\"ASTRONOMICAN\"}, 0) + clamp_min(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}, 0)) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "((100 * deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} / (deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} + clamp_min(deye_inverter_battery_power{host=\"ASTRONOMICAN\"}, 0) + clamp_min(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}, 0))) and on(host) ((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} + clamp_min(deye_inverter_battery_power{host=\"ASTRONOMICAN\"}, 0) + clamp_min(deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}, 0)) > 0))",
           "instant": false,
           "legendFormat": "Load / positive inputs",
           "range": true,
@@ -4435,7 +4517,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Observed inverter fault/run and grid connection states, not a complete event log. Unknown/incomplete fault reads invalidate cached healthy or fault values; a positively observed fault remains visible in a partial poll. Missing observations remain gaps; grid unavailable does not distinguish protector-open from utility failure.",
+      "description": "Observed inverter fault/run and grid connection states, not a complete event log. Missing observations remain gaps; grid unavailable does not distinguish protector-open from utility failure. Historical fault values before diagnostics are legacy raw collector output; only the current fault stat requires explicit fault-known qualification. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4598,7 +4680,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_fault_active{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_fault_state_known{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_fault_active{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Faults",
           "range": true,
@@ -4610,7 +4692,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_running_status{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_running_status{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Inverter",
           "range": true,
@@ -4622,7 +4704,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_grid_connected_status{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Grid",
           "range": true,
@@ -4874,7 +4956,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Maxima of qualified observations at nominal ingestion cadence, not guaranteed instantaneous physical peaks. Missing history can hide peaks; no qualification exists before poll-status deployment.",
+      "description": "Maxima of raw observations at nominal ingestion cadence, not guaranteed instantaneous physical peaks. Missing history can hide peaks. Historical aggregation uses raw retained measurements. Complete expected-sample coverage is reported separately and is absent\u2014not zero\u2014before poll diagnostics existed; partial coverage limits confidence without erasing the aggregate.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -4894,7 +4976,24 @@
           "unit": "watt",
           "noValue": "Unavailable"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -4926,7 +5025,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time(((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time(((deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Peak PV",
           "range": false,
@@ -4938,7 +5037,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time(((deye_inverter_load_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time(((deye_inverter_load_total_power{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Peak Load",
           "range": false,
@@ -4950,11 +5049,23 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(max_over_time(((deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_grid_total_power_read_success{host=\"ASTRONOMICAN\"} == 1)))[$__range:${solar_sample_interval_s}s])) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(max_over_time(((deye_inverter_grid_total_power{host=\"ASTRONOMICAN\"}))[$__range:${solar_sample_interval_s}s]))",
           "instant": true,
           "legendFormat": "Peak Grid Import",
           "range": false,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[$__range]) * ${solar_sample_interval_s} / $__range_s, 1) * 100",
+          "instant": true,
+          "legendFormat": "Selected-range complete expected-sample coverage",
+          "range": false,
+          "refId": "D"
         }
       ],
       "title": "Observed Power Peaks",
@@ -5297,11 +5408,12 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Rolling 24-hour lifetime-register increases, sampled at \u22651h. Overlapping windows MUST NOT be summed. Not local calendar-day totals; no plant timezone assumption. Counter-decrease windows are unavailable (including observed brief zero/restoration glitches). Increase extrapolates at window edges; gaps/history limits remain. Values are kWh, not integrated W. Display also requires a fresh complete poll at each evaluation time; no health-qualified points exist before diagnostic deployment.",
+      "description": "One discrete bar per completed inverter device day for direct inverter-maintained kWh counters. Observed reset samples occur at 19:01:35\u201319:01:50 UTC (00:01:35\u201300:01:50 Asia/Karachi). At each UTC-midnight bar timestamp, max_over_time reads the reset-safe 19:02 UTC through 19:01 UTC window and represents the immediately preceding Asia/Karachi device day. Load is directly measured; PV production, grid import, battery discharge and battery charge are gross source flows, not load allocation, and must not be summed. The current partial device day remains in panel 17. Missing samples remain gaps; a bar can still be computed from partial observations, so the separate Poll coverage (diagnostics era) line reports complete expected-sample coverage. Coverage is absent\u2014not zero\u2014before poll diagnostics existed. A genuine all-zero day remains zero; max protects against an isolated false zero but not a false high sample. Bars are non-stacked overlays for Grafana 10.2.8 compatibility. The panel requests 30 days for relative ranges; an explicitly selected absolute dashboard range wins.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "palette-classic"
+            "mode": "fixed",
+            "fixedColor": "#FF9830"
           },
           "custom": {
             "axisBorderShow": false,
@@ -5310,8 +5422,8 @@
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
-            "drawStyle": "line",
-            "fillOpacity": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 65,
             "gradientMode": "none",
             "hideFrom": {
               "legend": false,
@@ -5349,7 +5461,126 @@
           "unit": "kwatth",
           "noValue": "Unavailable"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "A"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#FF9830"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "B"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#F2CC0C"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "C"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#E02F44"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "D"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#56A64B"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "E"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#3274D9"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byFrameRefID",
+              "options": "F"
+            },
+            "properties": [
+              {
+                "id": "custom.drawStyle",
+                "value": "line"
+              },
+              {
+                "id": "custom.lineWidth",
+                "value": 2
+              },
+              {
+                "id": "custom.fillOpacity",
+                "value": 0
+              },
+              {
+                "id": "custom.axisPlacement",
+                "value": "right"
+              },
+              {
+                "id": "custom.showPoints",
+                "value": "never"
+              },
+              {
+                "id": "unit",
+                "value": "percent"
+              },
+              {
+                "id": "decimals",
+                "value": 1
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "#73BF69"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
@@ -5381,10 +5612,10 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((increase(deye_inverter_total_production{host=\"ASTRONOMICAN\"}[24h])) unless on(host) (resets(deye_inverter_total_production{host=\"ASTRONOMICAN\"}[24h]) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "max_over_time(deye_inverter_daily_load_consumption{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m)",
           "instant": false,
-          "interval": "1h",
-          "legendFormat": "PV",
+          "interval": "1d",
+          "legendFormat": "Load consumed",
           "range": true,
           "refId": "A"
         },
@@ -5394,10 +5625,10 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((increase(deye_inverter_total_load_consumption{host=\"ASTRONOMICAN\"}[24h])) unless on(host) (resets(deye_inverter_total_load_consumption{host=\"ASTRONOMICAN\"}[24h]) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "max_over_time(deye_inverter_daily_production{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m)",
           "instant": false,
-          "interval": "1h",
-          "legendFormat": "Load",
+          "interval": "1d",
+          "legendFormat": "PV produced",
           "range": true,
           "refId": "B"
         },
@@ -5407,16 +5638,55 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "((increase(deye_inverter_total_energy_bought{host=\"ASTRONOMICAN\"}[24h])) unless on(host) (resets(deye_inverter_total_energy_bought{host=\"ASTRONOMICAN\"}[24h]) > 0)) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "max_over_time(deye_inverter_daily_energy_bought{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m)",
           "instant": false,
-          "interval": "1h",
-          "legendFormat": "Grid Import",
+          "interval": "1d",
+          "legendFormat": "Grid imported",
           "range": true,
           "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max_over_time(deye_inverter_daily_battery_discharge{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m)",
+          "instant": false,
+          "interval": "1d",
+          "legendFormat": "Battery discharged",
+          "range": true,
+          "refId": "D"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "max_over_time(deye_inverter_daily_battery_charge{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m)",
+          "instant": false,
+          "interval": "1d",
+          "legendFormat": "Battery charged",
+          "range": true,
+          "refId": "E"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "clamp_max(sum_over_time(deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"}[23h59m] offset 4h59m) * ${solar_sample_interval_s} / 86340, 1) * 100",
+          "instant": false,
+          "interval": "1d",
+          "legendFormat": "Poll coverage (diagnostics era)",
+          "range": true,
+          "refId": "F"
         }
       ],
       "timeFrom": "30d",
-      "title": "Trailing 24h Energy (not calendar days)",
+      "title": "Device-Day Energy \u2014 Gross Flows (not load attribution)",
       "type": "timeseries"
     },
     {
@@ -5424,7 +5694,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
-      "description": "Selected-interval power versus the same timestamps exactly 24h earlier, not local calendar today/yesterday. Each side requires its own contemporary poll health; shifted data is not checked against current producer timestamps. No pre-diagnostic history is invented.",
+      "description": "Selected-interval power versus the same timestamps exactly 24h earlier, not local calendar today/yesterday. Both sides query raw retained measurements at their respective timestamps. Historical series use raw retained measurements so pre-diagnostic history remains visible. Missing samples are shown as gaps rather than connected; observations before poll-health diagnostics are legacy/unqualified, not freshness-validated current readings.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -5553,7 +5823,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "PV selected interval",
           "range": true,
@@ -5565,7 +5835,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} offset 1d + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} offset 1d) and on(host) (((time() - 86400 - (deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} offset 1d) >= -5) and (time() - 86400 - (deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} offset 1d) < 30)) and on(host) ((deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} offset 1d) == 1))",
+          "expr": "(deye_inverter_pv1_power{host=\"ASTRONOMICAN\"} offset 1d + deye_inverter_pv2_power{host=\"ASTRONOMICAN\"} offset 1d)",
           "instant": false,
           "legendFormat": "PV 24h earlier",
           "range": true,
@@ -5577,7 +5847,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"}) and on(host) (((time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} >= -5) and (time() - deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} < 30)) and on(host) (deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} == 1))",
+          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"})",
           "instant": false,
           "legendFormat": "Load selected interval",
           "range": true,
@@ -5589,7 +5859,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} offset 1d) and on(host) (((time() - 86400 - (deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} offset 1d) >= -5) and (time() - 86400 - (deye_inverter_telemetry_poll_timestamp_seconds{host=\"ASTRONOMICAN\"} offset 1d) < 30)) and on(host) ((deye_inverter_telemetry_poll_success{host=\"ASTRONOMICAN\"} offset 1d) == 1))",
+          "expr": "(deye_inverter_load_total_power{host=\"ASTRONOMICAN\"} offset 1d)",
           "instant": false,
           "legendFormat": "Load 24h earlier",
           "range": true,

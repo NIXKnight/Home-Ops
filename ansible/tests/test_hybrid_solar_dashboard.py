@@ -19,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -33,6 +34,35 @@ LIVE = False
 ENGINE_NOTICES = {"warnings": set(), "infos": set()}
 NOTICE_LOCK = threading.Lock()
 PROXY = "/api/v1/namespaces/monitoring/services/http:prometheus-server:80/proxy/api/v1/query?"
+PROXY_RANGE = "/api/v1/namespaces/monitoring/services/http:prometheus-server:80/proxy/api/v1/query_range?"
+DEVICE_DAY_END_OFFSET_S = 4 * 3600 + 59 * 60
+DEVICE_DAY_WINDOW_S = 23 * 3600 + 59 * 60
+
+CURRENT_TARGETS = {
+    8: "A", 19: "A", 1: "ABCDEF", 2: "ABCD", 33: "ACDFGHIJK", 62: "AB",
+    28: "ABCDEFG", 32: "ABCDE", 61: "ADE", 29: "ABCD", 38: "ABC",
+    17: "ABCDE", 18: "ABDE", 39: "BCDE", 53: "ABCDEFG",
+}
+HISTORICAL_TARGETS = {
+    35: "A", 12: "ABC", 50: "AB", 51: "ABCD", 13: "AB", 34: "A", 37: "A",
+    46: "ABC", 14: "A", 22: "ABCD", 16: "ABC", 36: "AB", 48: "A",
+    43: "ABC", 49: "ABCD",
+}
+AGGREGATE_TARGETS = {
+    39: "A", 44: "A", 47: "ABC", 41: "ACDEFGH", 45: "ABC", 40: "ABC",
+    52: "ABCDE",
+}
+SETTINGS_TARGETS = {61: "BC", 64: "ABCDEFG", 65: "ABCDEF"}
+DIAGNOSTIC_TARGETS = {1: "GHI", 41: "BI", 42: "ABCDEFGH"}
+COVERAGE_TARGETS = {(39, "F"), (44, "B"), (47, "D"), (45, "D"),
+                    (40, "D"), (52, "F")}
+DIAGNOSTIC_METRICS = (
+    "telemetry_poll_timestamp_seconds", "telemetry_poll_success",
+    "telemetry_poll_fields_received", "telemetry_poll_fields_expected",
+    "grid_total_power_read_success", "fault_state_known",
+    "settings_poll_timestamp_seconds", "settings_poll_success",
+    "settings_poll_fields_received", "settings_poll_fields_expected",
+)
 
 
 def panels(dashboard):
@@ -44,21 +74,20 @@ def target(dashboard, panel, ref):
 
 
 def substitute(expr, cadence):
-    for key, value in {"${solar_sample_interval_s}": str(cadence), "$__range_s": "21600",
-                       "$__range": "6h", "$__rate_interval": "1m", "$__interval": "1m"}.items():
+    for key, value in {"${solar_sample_interval_s}": str(cadence),
+                       "$__range_s": "21600", "$__range": "6h",
+                       "$__rate_interval": "1m", "$__interval": "1m"}.items():
         expr = expr.replace(key, value)
     if "$" in expr:
         raise ValueError("unsubstituted dashboard variable")
     return expr
 
 
-def prometheus(expr, at=None):
-    params = {"query": expr}
-    if at is not None:
-        params["time"] = str(at)
-    url = PROXY + urllib.parse.urlencode(params)
-    result = subprocess.run(["kubectl", "--request-timeout=40s", "get", "--raw", url],
-                            text=True, capture_output=True, timeout=45)
+def prometheus_request(route, params, timeout=45):
+    url = route + urllib.parse.urlencode(params)
+    result = subprocess.run(["kubectl", "--request-timeout=" + str(timeout - 5) + "s",
+                             "get", "--raw", url], text=True, capture_output=True,
+                            timeout=timeout)
     if result.returncode:
         # Never reproduce authentication plugin diagnostics or response dumps.
         raise AssertionError("read-only solar Prometheus GET failed; diagnostics withheld")
@@ -71,12 +100,32 @@ def prometheus(expr, at=None):
     return body["data"]["result"]
 
 
+def prometheus(expr, at=None):
+    params = {"query": expr}
+    if at is not None:
+        params["time"] = str(at)
+    return prometheus_request(PROXY, params)
+
+
+def prometheus_range(expr, start, end, step):
+    return prometheus_request(PROXY_RANGE, {"query": expr, "start": str(start),
+                                           "end": str(end), "step": str(step)}, 185)
+
+
 def fresh(now, timestamp, maximum=30):
     return timestamp is not None and -5 <= now - timestamp < maximum
 
 
 def qualified(value, now, timestamp, success):
     return value if value is not None and fresh(now, timestamp) and success == 1 else None
+
+
+def completed_device_day(samples, utc_marker):
+    end = utc_marker - DEVICE_DAY_END_OFFSET_S
+    start = end - DEVICE_DAY_WINDOW_S
+    observed = [value for stamp, value in samples
+                if start <= stamp <= end and value is not None]
+    return max(observed) if observed else None
 
 
 def last(samples, now):
@@ -146,29 +195,83 @@ class DashboardContract(unittest.TestCase):
         cls.dashboard = renderer.render("cluster")
         cls.ps = panels(cls.dashboard)
 
-    def test_every_physical_query_has_matching_source_gate(self):
-        for pid, panel in self.ps.items():
-            for t in panel["targets"]:
-                q = t["expr"]
-                with self.subTest(panel=pid, ref=t["refId"]):
-                    self.assertIn('host="ASTRONOMICAN"', q)
-                    if pid == 42 or (pid == 1 and t["refId"] in ["G", "H", "I"]) or (pid == 41 and t["refId"] in ["B", "I"]):
-                        continue  # Diagnostic samples themselves, never invented.
-                    self.assertIn("poll_timestamp_seconds", q)
-                    self.assertIn("and on(host)", q)
-                    self.assertRegex(q, r"poll_success|fault_state_known|grid_total_power_read_success")
+    def test_explicit_query_policy_matrix_is_complete(self):
+        expected = {}
+        for policy, groups in [
+            ("current", CURRENT_TARGETS), ("historical", HISTORICAL_TARGETS),
+            ("aggregate", AGGREGATE_TARGETS), ("settings", SETTINGS_TARGETS),
+            ("diagnostic", DIAGNOSTIC_TARGETS),
+        ]:
+            for pid, refs in groups.items():
+                for ref in refs:
+                    self.assertNotIn((pid, ref), expected)
+                    expected[(pid, ref)] = policy
+        for key in COVERAGE_TARGETS:
+            self.assertNotIn(key, expected)
+            expected[key] = "coverage"
+        actual = {(pid, t["refId"]) for pid, panel in self.ps.items()
+                  for t in panel["targets"]}
+        self.assertEqual(actual, set(expected))
+        self.assertEqual(len(actual), 157)
+        self.assertEqual({p: list(expected.values()).count(p) for p in set(expected.values())},
+                         {"current": 65, "historical": 35, "aggregate": 23,
+                          "settings": 15, "diagnostic": 13, "coverage": 6})
 
-    def test_fault_does_not_require_complete_poll(self):
-        for pid, ref in [(29, "D"), (43, "A")]:
+    def test_current_settings_historical_and_aggregate_gate_contracts(self):
+        for pid, refs in CURRENT_TARGETS.items():
+            for ref in refs:
+                q = target(self.dashboard, pid, ref)["expr"]
+                with self.subTest(policy="current", panel=pid, ref=ref):
+                    self.assertIn('host="ASTRONOMICAN"', q)
+                    self.assertIn("telemetry_poll_timestamp_seconds", q)
+                    self.assertRegex(q, r"telemetry_poll_success|fault_state_known|grid_total_power_read_success")
+        for pid, refs in SETTINGS_TARGETS.items():
+            for ref in refs:
+                q = target(self.dashboard, pid, ref)["expr"]
+                with self.subTest(policy="settings", panel=pid, ref=ref):
+                    self.assertIn("last_over_time", q)
+                    self.assertIn("settings_poll_timestamp_seconds", q)
+                    self.assertIn("settings_poll_success", q)
+                    self.assertIn("< 600", q)
+        for policy, groups in [("historical", HISTORICAL_TARGETS),
+                               ("aggregate", AGGREGATE_TARGETS)]:
+            for pid, refs in groups.items():
+                for ref in refs:
+                    q = target(self.dashboard, pid, ref)["expr"]
+                    with self.subTest(policy=policy, panel=pid, ref=ref):
+                        self.assertIn('host="ASTRONOMICAN"', q)
+                        self.assertFalse(any(metric in q for metric in DIAGNOSTIC_METRICS))
+        for pid in HISTORICAL_TARGETS:
+            self.assertFalse(self.ps[pid]["fieldConfig"]["defaults"]["custom"]["spanNulls"])
+            self.assertIn("legacy/unqualified", self.ps[pid]["description"])
+
+    def test_aggregate_coverage_is_explicit_and_never_fabricated(self):
+        for pid, ref in COVERAGE_TARGETS | {(41, "I")}:
             q = target(self.dashboard, pid, ref)["expr"]
-            self.assertIn("fault_state_known", q)
-            self.assertNotIn("telemetry_poll_success", q)
-            self.assertIn("< 30", q)
+            with self.subTest(panel=pid, ref=ref):
+                self.assertIn("sum_over_time(deye_inverter_telemetry_poll_success", q)
+                self.assertIn("clamp_max", q)
+                self.assertNotIn("or vector", q)
+        self.assertIn("count_over_time(deye_inverter_telemetry_poll_timestamp_seconds",
+                      target(self.dashboard, 41, "B")["expr"])
+
+    def test_only_current_fault_requires_fault_known(self):
+        current = target(self.dashboard, 29, "D")["expr"]
+        historical = target(self.dashboard, 43, "A")["expr"]
+        self.assertIn("fault_state_known", current)
+        self.assertNotIn("telemetry_poll_success", current)
+        self.assertIn("< 30", current)
+        self.assertNotIn("fault_state_known", historical)
+        self.assertIn("legacy raw collector output", self.ps[43]["description"])
 
     def test_grid_zero_is_not_filtered_out(self):
-        for pid, ref in [(1, "E"), (14, "A"), (28, "A"), (22, "C")]:
+        for pid, ref in [(1, "E"), (28, "A")]:
             q = target(self.dashboard, pid, ref)["expr"]
             self.assertIn("grid_total_power_read_success", q)
+            self.assertNotRegex(q, r"grid_total_power\{[^}]*\}\s*>\s*0")
+        for pid, ref in [(14, "A"), (22, "C")]:
+            q = target(self.dashboard, pid, ref)["expr"]
+            self.assertNotIn("grid_total_power_read_success", q)
             self.assertNotRegex(q, r"grid_total_power\{[^}]*\}\s*>\s*0")
         self.assertEqual(qualified(0, 110, 100, 1), 0)
 
@@ -183,10 +286,11 @@ class DashboardContract(unittest.TestCase):
         self.assertNotIn("return 0;", self.ps[1]["options"]["getOption"])
 
     def test_time_hot_boolean_observations_and_missing_stays_missing(self):
-        for t in self.ps[45]["targets"]:
-            self.assertIn("sum_over_time", t["expr"])
-            self.assertIn("> bool", t["expr"])
-            self.assertNotIn("or vector", t["expr"])
+        for ref in "ABC":
+            q = target(self.dashboard, 45, ref)["expr"]
+            self.assertIn("sum_over_time", q)
+            self.assertIn("> bool", q)
+            self.assertNotIn("or vector", q)
         def observed_hot(values):
             known = [v for v in values if v is not None]
             return sum(v > 45 for v in known) if known else None
@@ -200,10 +304,6 @@ class DashboardContract(unittest.TestCase):
                 q = t["expr"]
                 for name in re.findall(r"increase\((deye_inverter_\w+)\{", q):
                     self.assertIn("resets(" + name + "{", q)
-        for t in self.ps[52]["targets"]:
-            self.assertIn("[24h]", t["expr"])
-            self.assertEqual(t["interval"], "1h")
-        self.assertEqual(self.ps[52]["fieldConfig"]["defaults"]["custom"]["drawStyle"], "line")
         def guarded_change(values):
             if any(b < a for a, b in zip(values, values[1:])):
                 return None
@@ -212,14 +312,98 @@ class DashboardContract(unittest.TestCase):
         self.assertEqual(guarded_change([0, 0, 0]), 0)
         self.assertEqual(guarded_change([3833, 3833.1]), 3833.1 - 3833)
 
+    def test_device_day_energy_is_five_raw_bars_plus_diagnostic_coverage(self):
+        panel = self.ps[52]
+        expected = [
+            ("A", "daily_load_consumption", "Load consumed"),
+            ("B", "daily_production", "PV produced"),
+            ("C", "daily_energy_bought", "Grid imported"),
+            ("D", "daily_battery_discharge", "Battery discharged"),
+            ("E", "daily_battery_charge", "Battery charged"),
+        ]
+        self.assertEqual(panel["title"], "Device-Day Energy — Gross Flows (not load attribution)")
+        self.assertEqual(panel["timeFrom"], "30d")
+        self.assertIn("absolute dashboard range", panel["description"])
+        self.assertIn("19:01:35", panel["description"])
+        self.assertIn("immediately preceding Asia/Karachi device day", panel["description"])
+        self.assertIn("partial observations", panel["description"])
+        self.assertEqual([(t["refId"], t["legendFormat"]) for t in panel["targets"][:5]],
+                         [(ref, legend) for ref, _, legend in expected])
+        self.assertEqual(panel["targets"][5]["legendFormat"],
+                         "Poll coverage (diagnostics era)")
+        for t, (ref, metric, _) in zip(panel["targets"][:5], expected):
+            q = t["expr"]
+            self.assertEqual(q, "max_over_time(deye_inverter_" + metric +
+                             '{host="ASTRONOMICAN"}[23h59m] offset 4h59m)')
+            self.assertEqual(t["interval"], "1d")
+            self.assertFalse(t["instant"])
+            self.assertTrue(t["range"])
+        coverage = target(self.dashboard, 52, "F")
+        self.assertIn("sum_over_time(deye_inverter_telemetry_poll_success", coverage["expr"])
+        self.assertIn("[23h59m] offset 4h59m", coverage["expr"])
+        self.assertIn("/ 86340", coverage["expr"])
+        self.assertEqual(coverage["interval"], "1d")
+        custom = panel["fieldConfig"]["defaults"]["custom"]
+        self.assertEqual(custom["drawStyle"], "bars")
+        self.assertEqual(custom["fillOpacity"], 65)
+        self.assertEqual(custom["barAlignment"], 0)
+        self.assertEqual(custom["lineWidth"], 1)
+        self.assertFalse(custom["spanNulls"])
+        self.assertEqual(custom["stacking"]["mode"], "none")
+        overrides = {x["matcher"]["options"]: {p["id"]: p["value"]
+                     for p in x["properties"]} for x in panel["fieldConfig"]["overrides"]}
+        self.assertEqual(set(overrides), set("ABCDEF"))
+        for ref in "ABCDE":
+            self.assertEqual(overrides[ref]["color"]["mode"], "fixed")
+        self.assertEqual(overrides["F"]["custom.drawStyle"], "line")
+        self.assertEqual(overrides["F"]["custom.axisPlacement"], "right")
+        self.assertEqual(overrides["F"]["custom.fillOpacity"], 0)
+        self.assertEqual(overrides["F"]["unit"], "percent")
+
+    def test_device_day_window_is_complete_reset_safe_and_preserves_zero(self):
+        marker = 2 * 86400
+        end = marker - DEVICE_DAY_END_OFFSET_S
+        start = end - DEVICE_DAY_WINDOW_S
+        self.assertEqual(start % 86400, 19 * 3600 + 2 * 60)
+        self.assertEqual(end % 86400, 19 * 3600 + 60)
+        self.assertEqual(completed_device_day([
+            (start - 1, 90), (start, 0), (start + 60, 4),
+            (start + 120, 0), (end, 8), (end + 1, 70),
+        ], marker), 8)
+        self.assertEqual(completed_device_day([(start, 0), (end, 0)], marker), 0)
+        self.assertIsNone(completed_device_day([(start, None), (end, None)], marker))
+
+    def test_device_day_missing_and_zero_contract(self):
+        marker = 2 * 86400
+        end = marker - DEVICE_DAY_END_OFFSET_S
+        start = end - DEVICE_DAY_WINDOW_S
+        self.assertEqual(completed_device_day([(start, 0), (end, 0)], marker), 0)
+        self.assertIsNone(completed_device_day([(start, None), (end, None)], marker))
+        self.assertEqual(completed_device_day([(start, 0), (start + 60, None),
+                                               (end, 7.5)], marker), 7.5)
+
+    def test_no_hardcoded_health_cutoff_variable_or_branch(self):
+        for profile, args in [("cluster", ()),
+                              ("gateway", ("fixture-dashboard", "fixture-datasource"))]:
+            rendered = renderer.render(profile, *args)
+            self.assertNotIn("solar_health_start_s",
+                             [v["name"] for v in rendered["templating"]["list"]])
+            self.assertNotIn("solar_health_start_s", json.dumps(rendered))
+            self.assertNotIn("vector(time()) <", json.dumps(rendered))
+
     def test_truthful_titles_and_labels(self):
         names = [p["title"] for p in self.ps.values()]
         names += [t.get("legendFormat", "") for p in self.ps.values() for t in p["targets"]]
         for name in names:
             self.assertNotRegex(name.lower(), r"round.trip|self.sufficiency|conversion efficiency|ups load|cycled today|hours.*empty|outages|uptime")
-        self.assertEqual(len(self.ps[44]["targets"]), 1)
+        self.assertEqual(len(self.ps[44]["targets"]), 2)
         self.assertIn("SOC Trend", self.ps[44]["title"])
         self.assertNotIn("30%", self.ps[47]["description"])
+        expressions = " ".join(t["expr"] for p in self.ps.values() for t in p["targets"])
+        for unsupported in ["daily_energy_sold", "total_energy_sold", "total_grid_production",
+                            "generator_ready", "external_ct", "fault_1", "fault_2", "fault_3",
+                            "fault_4", "fault_5", "fault_6"]:
+            self.assertNotIn("deye_inverter_" + unsupported, expressions)
 
     def test_observed_disconnections_all_binary_sequences(self):
         q = target(self.dashboard, 41, "H")["expr"]
@@ -235,12 +419,12 @@ class DashboardContract(unittest.TestCase):
                 tested += 1
         self.assertEqual(tested, 2046)
 
-    def test_earlier_day_uses_earlier_poll_health(self):
+    def test_earlier_day_uses_raw_offset_history(self):
         for ref in ["B", "D"]:
             q = target(self.dashboard, 49, ref)["expr"]
-            self.assertIn("telemetry_poll_timestamp_seconds", q)
             self.assertIn("offset 1d", q)
-            self.assertIn("time() - 86400", q)
+            self.assertFalse(any(metric in q for metric in DIAGNOSTIC_METRICS))
+            self.assertNotIn("time() - 86400", q)
 
 
 class ProducerIntegration(unittest.TestCase):
@@ -409,6 +593,20 @@ class LivePrometheus(unittest.TestCase):
               len(ENGINE_NOTICES["warnings"]), "warnings,", len(ENGINE_NOTICES["infos"]), "infos")
         self.assertEqual(ENGINE_NOTICES["warnings"], set(), "Prometheus warnings require investigation")
 
+    def test_device_day_range_is_one_utc_marker_per_retained_complete_day(self):
+        end = int(time.time()) // 86400 * 86400
+        start = end - 30 * 86400
+        dashboard = renderer.render("cluster")
+        for ref in "ABCDE":
+            rows = prometheus_range(substitute(target(dashboard, 52, ref)["expr"], 5),
+                                    start, end, 86400)
+            self.assertEqual(len(rows), 1, ref)
+            stamps = [int(float(point[0])) for point in rows[0]["values"]]
+            self.assertGreater(len(stamps), 20, ref)
+            self.assertEqual(stamps, sorted(set(stamps)), ref)
+            self.assertTrue(all(stamp % 86400 == 0 for stamp in stamps), ref)
+            self.assertEqual(stamps[-1], end, ref)
+
     def test_boolean_zero_absence_and_reset_guard_in_engine(self):
         below = 'label_replace(vector(40), "host", "ASTRONOMICAN", "", "")'
         zero = prometheus('sum_over_time(((' + below + ') > bool 45)[5m:1m])')
@@ -424,14 +622,21 @@ class LivePrometheus(unittest.TestCase):
         guarded = prometheus('increase((' + glitch + ')[10m:10s]) unless (resets((' + glitch + ')[10m:10s]) > 0)')
         self.assertEqual(guarded, [])
 
-    def test_no_health_is_not_invented_for_existing_historical_samples(self):
+    def test_pre_diagnostic_history_is_raw_while_current_snapshots_fail_closed(self):
         # Discovery timestamp with legacy measurements but no poll diagnostics.
         at = 1792508756
         if not prometheus('deye_inverter_load_total_power{host="ASTRONOMICAN"}', at):
             self.skipTest("baseline measurement has aged out of retention")
         self.assertEqual(prometheus('deye_inverter_telemetry_poll_timestamp_seconds{host="ASTRONOMICAN"}', at), [])
         dashboard = renderer.render()
-        for pid, ref in [(1, "A"), (1, "E"), (29, "D"), (41, "H"), (45, "A"), (52, "A"), (64, "A")]:
+        for pid, ref in [(1, "A"), (1, "E"), (29, "D"), (64, "A")]:
+            self.assertEqual(prometheus(substitute(target(dashboard, pid, ref)["expr"], 5), at), [])
+        for pid, ref in [(35, "A"), (14, "A"), (43, "B"), (41, "H"), (45, "A")]:
+            self.assertTrue(prometheus(substitute(target(dashboard, pid, ref)["expr"], 5), at),
+                            (pid, ref))
+        for ref in "ABCDE":
+            self.assertEqual(len(prometheus(substitute(target(dashboard, 52, ref)["expr"], 5), at)), 1)
+        for pid, ref in COVERAGE_TARGETS | {(41, "I")}:
             self.assertEqual(prometheus(substitute(target(dashboard, pid, ref)["expr"], 5), at), [])
 
     def test_real_zero_survives_filter_matching_and_unknown_does_not(self):
