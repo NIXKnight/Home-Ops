@@ -68,10 +68,13 @@ not fabricated as healthy or as zero.
 
 Fast values need producer age **-5 <= age < 30s** and complete telemetry. The 5s
 negative tolerance accommodates small clock skew, not arbitrary future clocks.
-Fault views instead use fresh + fault-known, preserving positive partial-read
-faults. Grid power uses fresh + grid-read-success, never a power >0 predicate.
-Other fast values are conservatively unavailable on incomplete polls. A killed
-exec cannot emit diagnostics, so timestamp age independently expires old values.
+Panel 1 queries age directly as `time() - telemetry_poll_timestamp_seconds`; the
+chart does not derive age from a frame timestamp. Fault views instead use fresh +
+fault-known, preserving positive partial-read faults. Grid power uses fresh +
+grid-read-success, never a power >0 predicate, and can therefore remain available
+on a fresh partial poll. Other fast values are conservatively unavailable on
+incomplete polls. A killed exec cannot emit diagnostics, so age independently
+expires old values.
 
 Settings uses `last_over_time(...[10m])` on values AND latest diagnostic state,
 requiring successful latest settings poll and producer age **<600s**. This bridges
@@ -85,8 +88,11 @@ old heartbeat observations to display age; that does not make physical data vali
 - Grid 0 W is valid when protectors open or utility supply fails. Connection status
   is **grid available/unavailable**, not proof of utility-only failure. No export
   functionality or blanket zero rejection is introduced.
-- Missing/nonfinite/ambiguous Power Flow values say Unavailable; any unknown node
-  suppresses arrows. Current nulls are not replaced by earlier non-null values.
+- Missing/nonfinite/ambiguous Power Flow values say Unavailable. Each port degrades
+  independently: an unknown PV edge does not suppress a valid battery or load edge.
+  Grid power remains independently qualified by grid-read success, while connection,
+  voltage, frequency and inverter run status require a complete poll. Current nulls
+  are not replaced by earlier non-null values.
 - Current status/value panels require fresh producer timestamps and the applicable
   complete-poll, grid-read or fault-known predicate. Settings snapshots retain the
   separate ten-minute value/diagnostic lookback, successful latest poll and producer
@@ -143,6 +149,52 @@ old heartbeat observations to display age; that does not make physical data vali
 - Null bridging is disabled. Prometheus native lookback/staleness still applies;
   graphs are sampled, not continuous.
 
+## Power Flow Operational Cards contract
+
+Panel 1 is a theme-aware vector-only ECharts Operational Cards view for the
+provisioned Volkov Labs ECharts 6.6 / ECharts 5.6 runtime on Grafana 10.2.8 and
+13.0.1: solar at top, grid left, load right, battery bottom, and a neutral Hybrid
+Inverter / Plant Bus in the center. It uses the documented `context.panel.data`,
+`context.panel.chart`, `context.grafana.theme`, and ECharts option contract. It
+contains no raster or base64 icon assets. Widths use the fixed
+absolute scale `2 + 5*sqrt(min(abs(W),20000)/20000)`; they never compare one port
+to another. Static arrowheads retain direction when motion is disabled. Moving
+effects apply only to active paths and honor `prefers-reduced-motion`. Below 720px
+the cards compact; below 560px the panel becomes a static stacked summary.
+
+The chart accepts exactly one frame per ref and exactly one finite value in its
+single numeric field. Arrays, Grafana vectors (`get`), `toArray()`, and `meta.refId`
+are supported. Duplicate frames, multiple rows, multiple numeric fields, empty
+values, and nonfinite values invalidate only that ref. Only a `Done` result with no
+`data.errors` is normal. Loading, error, streaming, not-started, unknown, or missing
+states fail closed without displaying raw backend errors. Health is labeled only as
+`FRESH · COMPLETE`, `FRESH · PARTIAL POLL`, `STALE`, `QUERY ERROR`, `LOADING`, or
+`UNAVAILABLE`.
+
+Flow interpretation is deliberately bounded:
+
+- PV is PV1 + PV2. More than 25 W points PV to bus; 0–25 W is inactive; negative is
+  unexpected. Both strings are required for the aggregate, but other ports remain
+  independent.
+- Grid is an import-only measured path. More than 25 W points grid to bus only when
+  connection status is known and nonzero. 0–25 W has no arrow. Negative is
+  unexpected. Disconnected + 0 W uses the concise card state **Disconnected · path
+  open**, while its tooltip retains **Path disconnected / protector open · measured
+  0 W**; connected + 0 W is connected at zero import; unknown connection stays
+  unavailable; disconnected + more than 25 W is a conflict with no arrow.
+  None of these states proves a utility outage or protector cause.
+- Battery greater than 50 W points battery to bus (discharge), below -50 W points
+  bus to battery (charge), and the deadband is idle. The card displays power
+  magnitude. SoC is independent, so missing SoC does not suppress a valid flow.
+- Load greater than 25 W points bus to load; 0–25 W is idle; negative is unexpected.
+- Running status is shown only on the central card using panel 29's mapping:
+  0 Standby, 1 Self-check, 2 Normal, 3 Alarm, 4 Fault.
+
+Tooltips contain only the sanitized card model, freshness/health and sign convention.
+The panel includes ECharts 5 ARIA output and the exact qualification
+**Instantaneous measured port flows — not source allocation**. It does not calculate
+or imply a residual or energy allocation.
+
 ## Validation and rollout boundary
 
 ```sh
@@ -174,7 +226,9 @@ Tests check canonical/profile parity, the explicit current/historical/aggregate/
 settings/diagnostic policy matrix, raw pre-diagnostic history, coverage absence,
 daily-step panel-52 semantics, current stale/partial suppression, valid zero, actual
 collector pure-function contracts, all substituted profile queries, real ECharts
-execution, settings expiry/jitter/failure, and 2046 binary disconnection sequences.
+execution of Operational Cards states/flows/responsive modes/reduced motion/ARIA,
+strict frame diagnostics, settings expiry/jitter/failure, and 2046 binary
+disconnection sequences.
 A 30-day, 1d-step range evaluation returned UTC-aligned date markers for each of the
 five raw panel-52 energy bars. Read-only checks evaluate both rendered profiles on
 cluster Prometheus; a separate safe host-local GET audit may evaluate all unique
@@ -202,7 +256,7 @@ No query parse/evaluation failures were observed.
 
 ## Focused producer-field coverage audit
 
-The dashboard has 39 data panels and 157 targets: 65 current snapshots, 35 raw
+The dashboard has 39 data panels and 161 targets: 69 current snapshots, 35 raw
 historical targets, 23 raw aggregate measurements, 15 settings snapshots, 13 core
 diagnostics and 6 aggregate coverage targets. It directly references 63 of the
 82 register fields plus the required derived/poll-health fields. The 19 unreferenced

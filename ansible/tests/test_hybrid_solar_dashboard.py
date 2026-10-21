@@ -39,7 +39,7 @@ DEVICE_DAY_END_OFFSET_S = 4 * 3600 + 59 * 60
 DEVICE_DAY_WINDOW_S = 23 * 3600 + 59 * 60
 
 CURRENT_TARGETS = {
-    8: "A", 19: "A", 1: "ABCDEF", 2: "ABCD", 33: "ACDFGHIJK", 62: "AB",
+    8: "A", 19: "A", 1: "ABCDEFJKLM", 2: "ABCD", 33: "ACDFGHIJK", 62: "AB",
     28: "ABCDEFG", 32: "ABCDE", 61: "ADE", 29: "ABCD", 38: "ABC",
     17: "ABCDE", 18: "ABDE", 39: "BCDE", 53: "ABCDEFG",
 }
@@ -212,10 +212,31 @@ class DashboardContract(unittest.TestCase):
         actual = {(pid, t["refId"]) for pid, panel in self.ps.items()
                   for t in panel["targets"]}
         self.assertEqual(actual, set(expected))
-        self.assertEqual(len(actual), 157)
+        self.assertEqual(len(actual), 161)
         self.assertEqual({p: list(expected.values()).count(p) for p in set(expected.values())},
-                         {"current": 65, "historical": 35, "aggregate": 23,
+                         {"current": 69, "historical": 35, "aggregate": 23,
                           "settings": 15, "diagnostic": 13, "coverage": 6})
+
+    def test_power_flow_exact_refs_and_query_semantics(self):
+        panel = self.ps[1]
+        self.assertEqual([item["refId"] for item in panel["targets"]], list("ABCDEFGHIJKLM"))
+        self.assertEqual(target(self.dashboard, 1, "G")["expr"],
+                         'time() - deye_inverter_telemetry_poll_timestamp_seconds{host="ASTRONOMICAN"}')
+        self.assertEqual(target(self.dashboard, 1, "G")["legendFormat"], "Poll age at evaluation")
+        self.assertNotIn("telemetry_poll_success", target(self.dashboard, 1, "G")["expr"])
+        expected = {"J": "grid_connected_status", "K": "grid_voltage",
+                    "L": "grid_frequency", "M": "running_status"}
+        for ref, metric in expected.items():
+            item = target(self.dashboard, 1, ref)
+            self.assertTrue(item["instant"])
+            self.assertFalse(item["range"])
+            self.assertIn("deye_inverter_" + metric, item["expr"])
+            self.assertIn("telemetry_poll_success", item["expr"])
+            self.assertIn("< 30", item["expr"])
+        self.assertIn("grid_total_power_read_success", target(self.dashboard, 1, "E")["expr"])
+        self.assertNotIn("telemetry_poll_success", target(self.dashboard, 1, "E")["expr"])
+        for ref in "ABCDFJKLM":
+            self.assertIn("telemetry_poll_success", target(self.dashboard, 1, ref)["expr"])
 
     def test_current_settings_historical_and_aggregate_gate_contracts(self):
         for pid, refs in CURRENT_TARGETS.items():
@@ -528,47 +549,234 @@ class PowerFlow(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         code = panels(renderer.render())[1]["options"]["getOption"]
-        script = "const render = new Function('context', " + json.dumps(code) + ");\n" + r"""
-function frame(ref, value, time=1010000) {
-  return {refId:ref,fields:[{type:'time',name:'Time',values:[time]}, {type:'number',name:'Value',values:[value]}]};
+        script = "const render = new Function('context', " + json.dumps(code) + ");\n" + r'''
+function frame(ref, value) {
+  return {refId:ref,fields:[{type:'time',name:'Time',values:[1010000]}, {type:'number',name:'Value',values:[value]}]};
 }
-function frames() {return [frame('A',200),frame('B',150),frame('C',400),frame('D',80),frame('E',100),frame('F',800),frame('G',1000),frame('H',1),frame('I',1)];}
-function replace(fs,ref,value) {fs.find(f=>f.refId===ref).fields[1].values=[value];return fs;}
-const cases={valid:frames(),zero:frames(),absent:[],partial:replace(frames(),'H',0),
- stale:replace(frames(),'G',900),future:replace(frames(),'G',1020),
- missing:frames().filter(f=>f.refId!=='E'),duplicate:frames().concat([frame('A',999)]),
- nonfinite:replace(frames(),'B',NaN),unknownGrid:replace(frames(),'I',0),missingHeartbeat:frames().filter(f=>f.refId!=='G'),
- trailingNull:frames(),error:frames(),loading:frames(),ambiguousFields:frames(),legacy:frames()};
-for (const ref of ['A','B','C','D','E','F']) replace(cases.zero,ref,0);
-cases.trailingNull.find(f=>f.refId==='A').fields[1].values=[200,null];
-cases.ambiguousFields.find(f=>f.refId==='A').fields.push({type:'number',name:'Other',values:[99]});
-const old=cases.legacy.find(f=>f.refId==='A').fields[1];old.values={length:1,get:i=>200};
-for(const [name,fs] of Object.entries(cases)) {
- const out=render({panel:{data:{series:fs,state:name==='error'?'Error':name==='loading'?'Loading':'Done'}}});
- console.log(JSON.stringify({name,arrows:out.series[1].data.length,labels:out.series[2].data.map(n=>n.label.formatter)}));
+function frames() {
+  return [frame('A',200),frame('B',150),frame('C',400),frame('D',80),frame('E',100),frame('F',800),
+    frame('G',5),frame('H',1),frame('I',1),frame('J',1),frame('K',230.4),frame('L',50.01),frame('M',2)];
 }
-"""
-        result = subprocess.run(["node"], input=script, text=True, capture_output=True, timeout=15)
+function find(fs, ref) { return fs.find(f => (f.refId || (f.meta && f.meta.refId)) === ref); }
+function set(fs, ref, value) { find(fs,ref).fields[1].values=[value]; return fs; }
+function without(fs, ref) { return fs.filter(f => (f.refId || (f.meta && f.meta.refId)) !== ref); }
+function valuesGet(fs) { fs.forEach(f => {const a=f.fields[1].values; f.fields[1].values={length:a.length,get:i=>a[i]};}); return fs; }
+function valuesToArray(fs) { fs.forEach(f => {const a=f.fields[1].values; f.fields[1].values={toArray:()=>a.slice()};}); return fs; }
+const cases={};
+cases.normal={series:frames()};
+cases.allzero={series:frames()}; for (const ref of ['A','B','C','D','E','F']) set(cases.allzero.series,ref,0);
+cases.gridconnected0={series:set(frames(),'E',0)};
+cases.disconnected0={series:set(set(frames(),'E',0),'J',0)};
+cases.unknown0={series:without(set(frames(),'E',0),'J')};
+cases.negativegrid={series:set(frames(),'E',-100)};
+cases.conflict={series:set(set(frames(),'E',100),'J',0)};
+cases.charge={series:set(frames(),'C',-400)};
+cases.discharge={series:set(frames(),'C',400)};
+cases.deadband={series:set(frames(),'C',50)};
+cases.pvnegative={series:set(set(frames(),'A',-500),'B',100)};
+cases.loadnegative={series:set(frames(),'F',-20)};
+cases.missingSoc={series:without(frames(),'D')};
+cases.missingOnePv={series:without(frames(),'A')};
+cases.missingLoad={series:without(frames(),'F')};
+cases.partialValidGrid={series:set(frames(),'H',0)};
+cases.stale={series:set(frames(),'G',30)};
+cases.future={series:set(frames(),'G',-5.1)};
+cases.queryError={series:frames(),state:'Done',errors:[{message:'raw backend detail'}]};
+cases.loading={series:frames(),state:'Loading'};
+cases.notStarted={series:frames(),state:'NotStarted'};
+cases.streaming={series:frames(),state:'Streaming'};
+cases.unknownState={series:frames(),state:'Mystery'};
+cases.empty={series:[]};
+cases.duplicate={series:frames()}; cases.duplicate.series.push(frame('A',999));
+cases.multirow={series:frames()}; find(cases.multirow.series,'A').fields[1].values=[200,201];
+cases.multifield={series:frames()}; find(cases.multifield.series,'A').fields.push({type:'number',name:'Other',values:[99]});
+cases.nonfiniteDiagnostics={series:set(frames(),'G',NaN)};
+cases.vectorGet={series:valuesGet(frames())};
+cases.toArray={series:valuesToArray(frames())}; find(cases.toArray.series,'A').fields={toArray:()=>[{type:'time',values:[1010000]},{type:'number',values:{toArray:()=>[200]}}]};
+cases.metaRef={series:frames()}; cases.metaRef.series.forEach(f=>{f.meta={refId:f.refId}; delete f.refId;});
+cases.reducedMotion={series:frames(),reduced:true};
+cases.compact={series:frames(),width:700,height:390};
+cases.stacked={series:frames(),width:520,height:430};
+cases.largePeers={series:frames()}; set(cases.largePeers.series,'A',10000); set(cases.largePeers.series,'B',10000); set(cases.largePeers.series,'F',20000);
+function cardSummary(out) {
+  const result={};
+  for (const id of ['pv','grid','load','battery','center']) {
+    const group=out.graphic.find(g=>g.id==='card-'+id);
+    const texts=group.children.filter(c=>c.type==='text').map(c=>c.style.text);
+    const box=group.children.find(c=>c.type==='rect').shape;
+    result[id]={title:texts[0],primary:texts[1],state:texts[2],secondary:texts[3]||null,x:group.x,y:group.y,width:box.width,height:box.height};
+  }
+  return result;
+}
+for (const [name, config] of Object.entries(cases)) {
+  global.window={matchMedia:()=>({matches:!!config.reduced})};
+  const state=Object.prototype.hasOwnProperty.call(config,'state')?config.state:'Done';
+  const panelData={series:config.series,state:state};
+  if (config.errors) panelData.errors=config.errors;
+  const width=config.width||900, height=config.height||440;
+  const out=render({panel:{data:panelData,chart:{getWidth:()=>width,getHeight:()=>height}},grafana:{theme:{isDark:true,colors:{text:{primary:'#eeeeee',secondary:'#aaaaaa',disabled:'#777777'},background:{secondary:'#181818',canvas:'#111111'},border:{weak:'#333333'}}}}});
+  const flowSeries=out.series.find(s=>s.name==='Measured flow');
+  const topology=out.series.find(s=>s.name==='Topology');
+  const hover=out.series.find(s=>s.name==='Card details');
+  const chip=out.graphic.find(g=>g.id==='health-chip').children.find(c=>c.type==='text').style.text;
+  const footnote=out.graphic.find(g=>g.id==='flow-footnote').style.text;
+  console.log(JSON.stringify({name,cards:cardSummary(out),chip,
+    flows:flowSeries.data.map(d=>({name:d.name,value:d.value,width:d.lineStyle.width,coords:d.coords})),
+    topology:topology.data.map(d=>({name:d.name,type:d.lineStyle.type,opacity:d.lineStyle.opacity,color:d.lineStyle.color})),
+    effect:{show:flowSeries.effect.show,constantSpeed:flowSeries.effect.constantSpeed,hasPeriod:Object.prototype.hasOwnProperty.call(flowSeries.effect,'period')},
+    staticArrows:flowSeries.symbol,aria:out.aria,media:out.media.map(m=>m.query),footnote,
+    tooltips:hover.data.map(d=>d.tooltip),seriesTypes:out.series.map(s=>s.type),graphicTypes:out.graphic.map(g=>g.type),animation:out.animation,width,height}));
+}
+'''
+        result = subprocess.run(["node"], input=script, text=True, capture_output=True, timeout=20)
         if result.returncode:
-            raise AssertionError("Power Flow JavaScript execution failed")
-        cls.results = {x["name"]: x for x in map(json.loads, result.stdout.splitlines())}
+            raise AssertionError("Power Flow JavaScript execution failed: " + result.stderr[:500])
+        cls.results = {item["name"]: item for item in map(json.loads, result.stdout.splitlines())}
+        cls.code = code
 
-    def test_valid_and_real_zero(self):
-        self.assertEqual(self.results["valid"]["arrows"], 4)
-        self.assertEqual(self.results["legacy"]["arrows"], 4)
-        self.assertEqual(self.results["zero"]["arrows"], 0)
-        self.assertNotIn("Unavailable", str(self.results["zero"]["labels"]))
-        self.assertIn("0 W", str(self.results["zero"]["labels"]))
-        self.assertIn("0 %", str(self.results["zero"]["labels"]))
+    def card(self, case, name):
+        return self.results[case]["cards"][name]
 
-    def test_unavailable_never_fabricates_measurement(self):
-        for case in ["absent", "partial", "stale", "future", "missing", "duplicate", "nonfinite", "unknownGrid", "trailingNull", "error", "loading", "ambiguousFields", "missingHeartbeat"]:
+    def flow(self, case, name):
+        return next((flow for flow in self.results[case]["flows"] if flow["name"] == name), None)
+
+    def test_normal_operational_cards_and_accessibility(self):
+        result = self.results["normal"]
+        self.assertEqual(result["chip"], "FRESH · COMPLETE")
+        self.assertEqual({flow["name"] for flow in result["flows"]}, {"pv", "grid", "battery", "load"})
+        self.assertEqual(self.card("normal", "pv")["primary"], "350 W")
+        self.assertIn("PV1 200 W · PV2 150 W", self.card("normal", "pv")["secondary"])
+        self.assertEqual(self.card("normal", "center")["state"], "Status · Normal")
+        self.assertIn("230.4 V · 50.01 Hz", self.card("normal", "grid")["secondary"])
+        self.assertEqual(result["staticArrows"], ["none", "arrow"])
+        self.assertTrue(result["effect"]["show"])
+        self.assertEqual(result["effect"]["constantSpeed"], 36)
+        self.assertFalse(result["effect"]["hasPeriod"])
+        self.assertTrue(result["aria"]["enabled"])
+        self.assertIn("Operational power flow", result["aria"]["description"])
+        self.assertEqual(result["footnote"], "Instantaneous measured port flows — not source allocation")
+        self.assertEqual(result["seriesTypes"], ["lines", "lines", "scatter"])
+        self.assertEqual(len(result["media"]), 3)
+
+    def test_zero_and_grid_connection_states_are_truthful(self):
+        self.assertEqual(self.results["allzero"]["flows"], [])
+        self.assertEqual(self.card("allzero", "pv")["primary"], "0 W")
+        self.assertEqual(self.card("allzero", "battery")["secondary"], "SoC 0 %")
+        self.assertNotIn("Unavailable", str(self.results["allzero"]["cards"]))
+        self.assertEqual(self.card("gridconnected0", "grid")["state"], "Connected · 0 W import")
+        self.assertEqual(self.card("disconnected0", "grid")["state"], "Disconnected · path open")
+        self.assertTrue(any("Path disconnected / protector open · measured 0 W" in tooltip
+                            for tooltip in self.results["disconnected0"]["tooltips"]))
+        self.assertEqual(self.card("unknown0", "grid")["state"], "State unavailable")
+        self.assertIsNone(self.flow("gridconnected0", "grid"))
+        self.assertIsNone(self.flow("disconnected0", "grid"))
+        self.assertIsNone(self.flow("unknown0", "grid"))
+        unknown_edge = next(edge for edge in self.results["unknown0"]["topology"] if edge["name"] == "grid")
+        self.assertEqual(unknown_edge["type"], "dotted")
+        self.assertEqual(unknown_edge["opacity"], 0.70)
+        self.assertTrue(all(edge["opacity"] == 0.70 for edge in self.results["normal"]["topology"]))
+
+    def test_unexpected_and_conflicting_values_never_imply_reverse_flows(self):
+        self.assertEqual(self.card("negativegrid", "grid")["state"], "Unexpected negative reading")
+        self.assertIsNone(self.flow("negativegrid", "grid"))
+        self.assertIn("conflicts", self.card("conflict", "grid")["state"])
+        self.assertIsNone(self.flow("conflict", "grid"))
+        self.assertEqual(self.card("pvnegative", "pv")["state"], "Unexpected negative reading")
+        self.assertIsNone(self.flow("pvnegative", "pv"))
+        self.assertEqual(self.card("loadnegative", "load")["state"], "Unexpected negative reading")
+        self.assertIsNone(self.flow("loadnegative", "load"))
+        self.assertNotIn("export", json.dumps(self.results).lower())
+        self.assertNotIn("utility outage", json.dumps(self.results).lower())
+
+    def test_battery_direction_deadband_and_independent_soc(self):
+        self.assertEqual(self.card("discharge", "battery")["primary"], "400 W")
+        self.assertEqual(self.card("discharge", "battery")["state"], "Discharging")
+        self.assertEqual(self.card("charge", "battery")["primary"], "400 W")
+        self.assertEqual(self.card("charge", "battery")["state"], "Charging")
+        self.assertNotEqual(self.flow("discharge", "battery")["coords"], self.flow("charge", "battery")["coords"])
+        self.assertEqual(self.card("deadband", "battery")["state"], "Idle")
+        self.assertIsNone(self.flow("deadband", "battery"))
+        self.assertEqual(self.card("missingSoc", "battery")["secondary"], "SoC unavailable")
+        self.assertIsNotNone(self.flow("missingSoc", "battery"))
+
+    def test_complete_channels_degrade_independently_and_grid_read_survives_partial(self):
+        self.assertEqual(self.card("missingOnePv", "pv")["primary"], "Unavailable")
+        self.assertIsNone(self.flow("missingOnePv", "pv"))
+        self.assertIsNotNone(self.flow("missingOnePv", "load"))
+        self.assertIsNotNone(self.flow("missingOnePv", "battery"))
+        self.assertEqual(self.card("missingLoad", "load")["primary"], "Unavailable")
+        self.assertIsNone(self.flow("missingLoad", "load"))
+        self.assertIsNotNone(self.flow("missingLoad", "pv"))
+        partial = self.results["partialValidGrid"]
+        self.assertEqual(partial["chip"], "FRESH · PARTIAL POLL")
+        self.assertEqual(self.card("partialValidGrid", "grid")["primary"], "100 W")
+        self.assertEqual(self.card("partialValidGrid", "pv")["primary"], "Unavailable")
+        self.assertEqual(self.card("partialValidGrid", "grid")["state"], "State unavailable")
+        self.assertEqual(partial["flows"], [])
+
+    def test_global_states_fail_closed_without_raw_errors(self):
+        expected = {"stale":"STALE", "future":"STALE", "queryError":"QUERY ERROR", "loading":"LOADING",
+                    "notStarted":"UNAVAILABLE", "streaming":"UNAVAILABLE", "unknownState":"UNAVAILABLE",
+                    "empty":"UNAVAILABLE", "nonfiniteDiagnostics":"UNAVAILABLE"}
+        for case, chip in expected.items():
             with self.subTest(case=case):
-                self.assertEqual(self.results[case]["arrows"], 0)
-                self.assertIn("Unavailable", str(self.results[case]["labels"]))
-        self.assertNotIn("0 W", str(self.results["absent"]["labels"]))
-        self.assertIn("SoC unavailable", str(self.results["absent"]["labels"]))
+                result = self.results[case]
+                self.assertEqual(result["chip"], chip)
+                self.assertEqual(result["flows"], [])
+                for card in result["cards"].values():
+                    self.assertIn("Unavailable", card["primary"] if card["title"] != "HYBRID INVERTER" else card["state"])
+        self.assertNotIn("raw backend detail", json.dumps(self.results))
+        self.assertNotIn("0 W", str(self.results["empty"]["cards"]))
 
+    def test_strict_frame_shape_fails_only_the_affected_channel(self):
+        for case in ["duplicate", "multirow", "multifield"]:
+            with self.subTest(case=case):
+                self.assertEqual(self.card(case, "pv")["primary"], "Unavailable")
+                self.assertIsNone(self.flow(case, "pv"))
+                self.assertIsNotNone(self.flow(case, "battery"))
+                self.assertIsNotNone(self.flow(case, "load"))
+
+    def test_vector_get_toarray_and_meta_refid_are_supported(self):
+        for case in ["vectorGet", "toArray", "metaRef"]:
+            with self.subTest(case=case):
+                self.assertEqual(self.results[case]["chip"], "FRESH · COMPLETE")
+                self.assertEqual({flow["name"] for flow in self.results[case]["flows"]}, {"pv", "grid", "battery", "load"})
+
+    def test_absolute_flow_width_is_fixed_not_relative(self):
+        normal_grid = self.flow("normal", "grid")["width"]
+        self.assertAlmostEqual(normal_grid, 2 + 5 * math.sqrt(100 / 20000), places=12)
+        self.assertEqual(normal_grid, self.flow("largePeers", "grid")["width"])
+        for flow in self.results["largePeers"]["flows"]:
+            self.assertGreaterEqual(flow["width"], 2)
+            self.assertLessEqual(flow["width"], 7)
+
+    def test_reduced_motion_keeps_static_arrows_and_responsive_modes(self):
+        reduced = self.results["reducedMotion"]
+        self.assertFalse(reduced["effect"]["show"])
+        self.assertFalse(reduced["animation"])
+        self.assertEqual(reduced["staticArrows"], ["none", "arrow"])
+        self.assertEqual(len(reduced["flows"]), 4)
+        compact = self.results["compact"]
+        self.assertLess(compact["cards"]["pv"]["width"], self.results["normal"]["cards"]["pv"]["width"])
+        self.assertTrue(compact["effect"]["show"])
+        stacked = self.results["stacked"]
+        self.assertEqual(stacked["flows"], [])
+        self.assertFalse(stacked["effect"]["show"])
+        self.assertFalse(stacked["animation"])
+        self.assertTrue(stacked["cards"]["pv"]["y"] < stacked["cards"]["grid"]["y"] < stacked["cards"]["load"]["y"] < stacked["cards"]["battery"]["y"])
+
+    def test_vector_only_graphics_sanitized_tooltips_and_no_legacy_artifacts(self):
+        self.assertNotIn("base64", self.code)
+        self.assertNotIn("data:image", self.code)
+        self.assertNotIn("return 0;", self.code)
+        self.assertNotIn("period:", self.code)
+        self.assertNotIn("residual", self.code.lower())
+        self.assertEqual(set(self.results["normal"]["graphicTypes"]), {"group", "text"})
+        tooltips = " ".join(self.results["normal"]["tooltips"])
+        self.assertIn("complete poll", tooltips)
+        self.assertIn("Positive grid power is measured import", tooltips)
+        self.assertIn("Positive battery power is discharge", tooltips)
+        self.assertNotIn("<script", tooltips.lower())
 
 class LivePrometheus(unittest.TestCase):
     def setUp(self):
